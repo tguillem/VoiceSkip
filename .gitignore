@@ -1,0 +1,11 @@
+*.iml
+app-release.aab
+.gradle
+/local.properties
+/.idea/
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+lib/src/main/jni/stream_test
