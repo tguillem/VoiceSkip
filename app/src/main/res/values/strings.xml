@@ -1,0 +1,143 @@
+<resources>
+    <string name="app_name">VoiceSkip</string>
+
+    <!-- Actions -->
+    <string name="action_record">Record audio</string>
+    <string name="action_select_file">Select audio file</string>
+    <string name="action_view_last">View last result</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_settings">Settings</string>
+
+    <!-- Descriptions -->
+    <string name="desc_record">Live transcription</string>
+    <string name="desc_select_file">From your device</string>
+    <string name="desc_view_last">Your previous transcription</string>
+    <string name="desc_recording">Speak clearly into your microphone</string>
+
+    <!-- States -->
+    <string name="state_loading">Loading model…</string>
+    <string name="state_transcribing">Transcribing…</string>
+    <string name="state_recording">Recording…</string>
+    <string name="state_finishing">Finishing…</string>
+
+    <!-- Errors -->
+    <string name="error_model_load">Failed to load model</string>
+    <string name="error_transcription">Transcription failed</string>
+    <string name="error_no_audio">No audio selected</string>
+    <string name="error_generic">Error</string>
+
+    <!-- Results -->
+    <string name="result_processed_in">Processed in %s</string>
+    <string name="result_characters">%d characters</string>
+
+    <!-- Buttons -->
+    <string name="button_copy">Copy</string>
+    <string name="button_share">Share</string>
+    <string name="button_new">New</string>
+    <string name="button_retry">Retry</string>
+    <string name="button_stop">Stop recording</string>
+    <string name="button_go_back">Go back</string>
+    <string name="button_stop_short">Stop</string>
+    <string name="button_cancel">Cancel</string>
+
+    <!-- Tips -->
+    <string name="tip_share">Tip</string>
+    <string name="tip_share_desc">Transcribe audio or video from any app</string>
+
+    <!-- Messages -->
+    <string name="msg_gpu_unavailable">GPU unavailable, using CPU</string>
+    <string name="msg_gpu_crash">GPU caused a crash, using CPU</string>
+    <string name="msg_turbo_crash">Turbo mode caused a crash, disabled</string>
+    <string name="msg_copied">Copied to clipboard</string>
+    <string name="msg_quick_actions">Quick actions</string>
+    <string name="msg_new_content">New content</string>
+    <string name="msg_transcription_delay">Transcription will appear after 30 seconds</string>
+    <string name="msg_transcription_delay_file">Transcription will appear after few seconds</string>
+    <string name="msg_scroll_to_bottom">Scroll to bottom</string>
+    <string name="msg_queue_limit_reached">Transcription too slow, finishing…</string>
+    <string name="msg_transcription_failed">Transcription failed</string>
+    <string name="msg_gpu_transcription_failed">GPU failed, retrying with CPU</string>
+
+    <!-- Share -->
+    <string name="share_transcription">Share transcription</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+
+    <!-- Settings - Transcription -->
+    <string name="settings_section_transcription">Transcription</string>
+    <string name="settings_show_timestamps">Show timestamps</string>
+    <string name="settings_show_timestamps_desc">Display timestamps in transcription results</string>
+    <string name="settings_transcription_language">Transcription language</string>
+
+    <!-- Settings - Notifications -->
+    <string name="settings_section_notifications">Notifications</string>
+    <string name="settings_notifications_title">Progress notifications</string>
+    <string name="settings_notifications_enabled">Progress updates shown in notification bar</string>
+    <string name="settings_notifications_disabled">Enable to see transcription progress</string>
+    <string name="settings_notifications_status_enabled">Enabled</string>
+    <string name="settings_notifications_enable">Enable</string>
+
+    <!-- Service Notifications -->
+    <string name="notification_complete_title">Transcription Complete</string>
+    <string name="notification_complete_text">Tap to view result</string>
+    <string name="notification_error_title">Transcription Failed</string>
+    <string name="notification_error_text">Tap to view details</string>
+
+    <!-- Settings - Model -->
+    <string name="settings_section_model">Model</string>
+    <string name="settings_model_faster">Faster</string>
+    <string name="settings_model_balanced">Balanced</string>
+    <string name="settings_model_precise">More precise</string>
+    <string name="settings_model_name">%s model</string>
+
+    <!-- Settings - Performance -->
+    <string name="settings_section_performance">Performance</string>
+    <string name="settings_gpu_title">GPU acceleration</string>
+    <string name="settings_gpu_device">Using %s</string>
+    <string name="settings_gpu_loading">Loading model with GPU…</string>
+    <string name="settings_gpu_disabled">CPU-only processing</string>
+    <string name="settings_threads_title">CPU threads</string>
+    <string name="settings_threads_desc_gpu">CPU threads for hybrid GPU/CPU processing</string>
+    <string name="settings_threads_desc_cpu">Number of CPU threads for processing</string>
+    <string name="settings_threads_default">Default: %d</string>
+    <string name="settings_turbo_title">Turbo Mode</string>
+    <string name="settings_turbo_desc">Uses %d CPU threads + GPU</string>
+    <string name="settings_turbo_desc_enabled">Using %d CPU threads + GPU</string>
+
+    <!-- Settings - About -->
+    <string name="settings_section_about">About</string>
+    <string name="settings_about_privacy">All processing happens locally on your device, ensuring complete privacy.</string>
+    <string name="settings_about_version">Version</string>
+    <string name="settings_about_license">License</string>
+    <string name="settings_about_license_name">GPL-3.0-or-later</string>
+    <string name="settings_about_license_copyright">© 2025–2026 Thomas Guillem</string>
+    <string name="settings_about_source">Source code</string>
+    <string name="settings_about_source_github">View on GitHub</string>
+    <string name="settings_about_licenses">Licenses</string>
+    <string name="settings_about_licenses_desc">View third-party licenses</string>
+
+    <!-- License Dialog (not translatable - legal text) -->
+    <string name="license_dialog_title" translatable="false">GNU General Public License v3.0</string>
+    <string name="license_dialog_text1" translatable="false">This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.</string>
+    <string name="license_dialog_text2" translatable="false">This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.</string>
+    <string name="license_dialog_text3" translatable="false">You should have received a copy of the GNU General Public License along with this program. If not, see:</string>
+    <string name="license_dialog_url" translatable="false">https://www.gnu.org/licenses/</string>
+    <string name="dialog_close">Close</string>
+    <string name="dialog_delete_title">Delete saved transcription?</string>
+    <string name="dialog_delete_message">This cannot be undone.</string>
+    <string name="dialog_delete_confirm">Delete</string>
+    <string name="dialog_cancel">Cancel</string>
+
+    <!-- Snackbar -->
+    <string name="snackbar_deleted">Transcription deleted</string>
+    <string name="snackbar_undo">Undo</string>
+
+    <!-- OSS Licenses Dialog -->
+    <string name="oss_dialog_title">Open source licenses</string>
+    <string name="oss_whisper_name" translatable="false">whisper.cpp (includes ggml)</string>
+    <string name="oss_whisper_copyright" translatable="false">Copyright (c) 2023–2024 The ggml authors</string>
+    <string name="oss_whisper_license" translatable="false">MIT License</string>
+    <string name="oss_jetpack_notice" translatable="false">Android Jetpack libraries are licensed under the Apache License 2.0.</string>
+</resources>

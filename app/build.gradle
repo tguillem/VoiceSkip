@@ -1,0 +1,201 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.serialization'
+    id 'com.google.devtools.ksp'
+    id 'com.google.dagger.hilt.android'
+    id 'jacoco'
+}
+
+android {
+    namespace 'com.voiceskip'
+    compileSdk 35
+
+    assetPacks = [":models_pack"]
+
+    signingConfigs {
+        debug {
+        }
+        release {
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.voiceskip"
+        minSdk 33
+        targetSdk 35
+        versionCode 3
+        versionName "0.9.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+
+        ndk {
+            debugSymbolLevel 'FULL'
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
+            }
+        }
+    }
+
+    // Packaging options for 16 KB alignment
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion '1.5.0'
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+        unitTests.all {
+            jacoco {
+                includeNoLocationClasses = true
+                excludes = ['jdk.internal.*']
+            }
+        }
+    }
+
+    // Include asset pack models in debug builds (asset packs only work with bundles)
+    sourceSets {
+        debug {
+            assets.srcDirs += '../models_pack/src/main/assets'
+        }
+    }
+}
+
+dependencies {
+    implementation project(':lib')
+    implementation 'androidx.activity:activity-compose:1.7.2'
+    implementation 'androidx.compose.material:material-icons-core:1.5.0'
+    implementation 'androidx.compose.material:material-icons-extended:1.5.0'
+    implementation 'androidx.compose.material3:material3:1.1.1'
+    implementation "androidx.compose.ui:ui:1.5.0"
+    implementation "androidx.compose.ui:ui-tooling-preview:1.5.0"
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1'
+    implementation "androidx.lifecycle:lifecycle-runtime-compose:2.7.0"
+    implementation "androidx.lifecycle:lifecycle-process:2.7.0"
+    implementation "com.google.accompanist:accompanist-permissions:0.28.0"
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.2'
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.0'
+
+    // DataStore
+    implementation "androidx.datastore:datastore-preferences:1.0.0"
+
+    // Navigation
+    implementation "androidx.navigation:navigation-compose:2.7.5"
+
+    // Hilt
+    implementation "com.google.dagger:hilt-android:2.48"
+    ksp "com.google.dagger:hilt-compiler:2.48"
+    implementation "androidx.hilt:hilt-navigation-compose:1.1.0"
+
+    // Unit Testing
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3"
+    testImplementation "io.mockk:mockk:1.13.8"
+    testImplementation "com.google.truth:truth:1.1.5"
+    testImplementation "app.cash.turbine:turbine:1.0.0"
+    testImplementation "androidx.arch.core:core-testing:2.2.0"
+
+    // Android Instrumented Testing
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    androidTestImplementation "androidx.compose.ui:ui-test-junit4:1.5.0"
+    debugImplementation "androidx.compose.ui:ui-tooling:1.5.0"
+    debugImplementation "androidx.compose.ui:ui-test-manifest:1.5.0"
+}
+
+tasks.register('jacocoTestReport', JacocoReport) {
+    dependsOn 'testDebugUnitTest'
+
+    reports {
+        xml.required = true
+        html.required = true
+    }
+
+    def fileFilter = [
+        '**/R.class',
+        '**/R$*.class',
+        '**/BuildConfig.*',
+        '**/Manifest*.*',
+        '**/*Test*.*',
+        '**/Hilt_*.*',
+        '**/*_HiltModules*.*',
+        '**/*_Factory.*',
+        '**/*_MembersInjector.*',
+        '**/*Module_*.*',
+        '**/*Dagger*.*',
+        '**/*_Provide*Factory*.*',
+    ]
+
+    def debugTree = fileTree(
+        dir: "${buildDir}/tmp/kotlin-classes/debug",
+        excludes: fileFilter
+    )
+
+    def mainSrc = "${project.projectDir}/src/main/java"
+
+    sourceDirectories.setFrom(files([mainSrc]))
+    classDirectories.setFrom(files([debugTree]))
+    executionData.setFrom(fileTree(
+        dir: buildDir,
+        includes: ['jacoco/testDebugUnitTest.exec']
+    ))
+}
+
+if (gradle.startParameter.taskNames.any { it.contains('benchmark') }) {
+    android.defaultConfig.testInstrumentationRunnerArguments['class'] = 'com.voiceskip.jni.WhisperBenchmark'
+} else if (gradle.startParameter.taskNames.any { it.contains('connectedAndroidTest') }) {
+    android.defaultConfig.testInstrumentationRunnerArguments['notClass'] = 'com.voiceskip.jni.WhisperBenchmark'
+}
+
+tasks.register('clearLogcat') {
+    doLast {
+        exec { commandLine 'adb', 'logcat', '-c' }
+    }
+}
+
+tasks.register('benchmark') {
+    group = 'verification'
+    description = 'Run whisper benchmarks and print results'
+
+    dependsOn 'clearLogcat'
+
+    doLast {
+        exec { commandLine 'adb', 'logcat', '-d', '-s', 'WhisperBenchmark:I' }
+    }
+}
+
+afterEvaluate {
+    tasks.named('benchmark').configure {
+        dependsOn 'connectedDebugAndroidTest'
+    }
+    tasks.named('connectedDebugAndroidTest').configure {
+        mustRunAfter 'clearLogcat'
+    }
+}
