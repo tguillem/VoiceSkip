@@ -1,0 +1,1445 @@
+From 9b00fb327368dde58f37913643ccb22edd83afef Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Sat, 3 Jan 2026 18:34:00 +0100
+Subject: [PATCH 01/14] whisper: init prompt just in time
+
+---
+ src/whisper.cpp | 42 +++++++++++++++++++++++++-----------------
+ 1 file changed, 25 insertions(+), 17 deletions(-)
+
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 796bccfb..805009c4 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -6963,20 +6963,6 @@ int whisper_full_with_state(
+     }
+     state->exp_n_audio_ctx = params.audio_ctx;
+ 
+-    // these tokens determine the task that will be performed
+-    std::vector<whisper_token> prompt_init = { whisper_token_sot(ctx), };
+-
+-    if (whisper_is_multilingual(ctx)) {
+-        const int lang_id = whisper_lang_id(params.language);
+-        state->lang_id = lang_id;
+-        prompt_init.push_back(whisper_token_lang(ctx, lang_id));
+-        if (params.translate) {
+-            prompt_init.push_back(whisper_token_translate(ctx));
+-        } else {
+-            prompt_init.push_back(whisper_token_transcribe(ctx));
+-        }
+-    }
+-
+     // first release distilled models require the "no_timestamps" token
+     {
+         const bool is_distil = ctx->model.hparams.n_text_layer == 2 && ctx->model.hparams.n_vocab != 51866;
+@@ -6986,9 +6972,8 @@ int whisper_full_with_state(
+         }
+     }
+ 
+-    if (params.no_timestamps) {
+-        prompt_init.push_back(whisper_token_not(ctx));
+-    }
++    std::vector<whisper_token> prompt_init;
++    bool prompt_init_built = false;
+ 
+     int seek = seek_start;
+ 
+@@ -7042,6 +7027,29 @@ int whisper_full_with_state(
+             prompt_past1.clear();
+         }
+ 
++        // build prompt_init on first iteration (after encode)
++        if (!prompt_init_built) {
++            prompt_init_built = true;
++
++            // these tokens determine the task that will be performed
++            prompt_init.push_back(whisper_token_sot(ctx));
++
++            if (whisper_is_multilingual(ctx)) {
++                const int lang_id = whisper_lang_id(params.language);
++                state->lang_id = lang_id;
++                prompt_init.push_back(whisper_token_lang(ctx, lang_id));
++                if (params.translate) {
++                    prompt_init.push_back(whisper_token_translate(ctx));
++                } else {
++                    prompt_init.push_back(whisper_token_transcribe(ctx));
++                }
++            }
++
++            if (params.no_timestamps) {
++                prompt_init.push_back(whisper_token_not(ctx));
++            }
++        }
++
+         int best_decoder_id = 0;
+ 
+         for (int it = 0; it < (int) temperatures.size(); ++it) {
+-- 
+2.47.2
+
+From 75bbcd630ba6376aac34bcedf71525ced4dd78d6 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 5 Jan 2026 14:32:09 +0100
+Subject: [PATCH 02/14] whisper: add whisper_full_get_prompt_past
+
+---
+ include/whisper.h |  5 +++++
+ src/whisper.cpp   | 11 +++++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/include/whisper.h b/include/whisper.h
+index f4cc6bf7..48767be9 100644
+--- a/include/whisper.h
++++ b/include/whisper.h
+@@ -671,6 +671,11 @@ extern "C" {
+     WHISPER_API float whisper_full_get_token_p           (struct whisper_context * ctx, int i_segment, int i_token);
+     WHISPER_API float whisper_full_get_token_p_from_state(struct whisper_state * state, int i_segment, int i_token);
+ 
++    // Get the prompt context tokens (prompt_past1) for passing to subsequent whisper_full calls
++    // Returns the number of tokens copied to tokens_out (up to max_tokens)
++    WHISPER_API int whisper_full_get_prompt_past           (struct whisper_context * ctx, whisper_token * tokens_out, int max_tokens);
++    WHISPER_API int whisper_full_get_prompt_past_from_state(struct whisper_state * state, whisper_token * tokens_out, int max_tokens);
++
+     //
+     // Voice Activity Detection (VAD)
+     //
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 805009c4..36dbb3aa 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -8075,6 +8075,17 @@ float whisper_full_get_token_p(struct whisper_context * ctx, int i_segment, int
+     return ctx->state->result_all[i_segment].tokens[i_token].p;
+ }
+ 
++int whisper_full_get_prompt_past_from_state(struct whisper_state * state, whisper_token * tokens_out, int max_tokens) {
++    const int n = std::min((int)state->prompt_past1.size(), max_tokens);
++    /* Copy from end of prompt_past1 (most recent tokens) */
++    memcpy(tokens_out, state->prompt_past1.data() + state->prompt_past1.size() - n, n * sizeof(whisper_token));
++    return n;
++}
++
++int whisper_full_get_prompt_past(struct whisper_context * ctx, whisper_token * tokens_out, int max_tokens) {
++    return whisper_full_get_prompt_past_from_state(ctx->state, tokens_out, max_tokens);
++}
++
+ float whisper_full_get_segment_no_speech_prob(struct whisper_context * ctx, int i_segment) {
+     return ctx->state->result_all[i_segment].no_speech_prob;
+ }
+-- 
+2.47.2
+
+From f7f4ddb0e7cbb75de469c85840832a6b301e13b7 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 5 Jan 2026 14:32:19 +0100
+Subject: [PATCH 03/14] whisper: add whisper_context_callback
+
+---
+ include/whisper.h | 16 ++++++++++++++++
+ src/whisper.cpp   | 27 ++++++++++++++++++++++++++-
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/include/whisper.h b/include/whisper.h
+index 48767be9..04f9168a 100644
+--- a/include/whisper.h
++++ b/include/whisper.h
+@@ -481,6 +481,18 @@ extern "C" {
+                              float * logits,
+                               void * user_data);
+ 
++    // Context callback
++    // Called once before decoding starts to inject external context (prompt tokens + language)
++    // Returns number of tokens written to tokens_out (0 if none)
++    // If *lang_id_out is set to >= 0, it overrides params.language
++    typedef int (*whisper_context_callback)(
++            struct whisper_context * ctx,
++              struct whisper_state * state,
++                     whisper_token * tokens_out,
++                               int   max_tokens,
++                               int * lang_id_out,
++                              void * user_data);
++
+     // Parameters for the whisper_full() function
+     // If you change the order or add new parameters, make sure to update the default values in whisper.cpp:
+     // whisper_full_default_params()
+@@ -578,6 +590,10 @@ extern "C" {
+         whisper_logits_filter_callback logits_filter_callback;
+         void * logits_filter_callback_user_data;
+ 
++        // called once to inject external context
++        whisper_context_callback context_callback;
++        void * context_callback_user_data;
++
+         const whisper_grammar_element ** grammar_rules;
+         size_t                           n_grammar_rules;
+         size_t                           i_start_rule;
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 36dbb3aa..527fc4e3 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -5980,6 +5980,9 @@ struct whisper_full_params whisper_full_default_params(enum whisper_sampling_str
+         /*.logits_filter_callback           =*/ nullptr,
+         /*.logits_filter_callback_user_data =*/ nullptr,
+ 
++        /*.context_callback           =*/ nullptr,
++        /*.context_callback_user_data =*/ nullptr,
++
+         /*.grammar_rules   =*/ nullptr,
+         /*.n_grammar_rules =*/ 0,
+         /*.i_start_rule    =*/ 0,
+@@ -6822,7 +6825,8 @@ int whisper_full_with_state(
+     }
+ 
+     // auto-detect language if not specified
+-    if (params.language == nullptr || strlen(params.language) == 0 || strcmp(params.language, "auto") == 0 || params.detect_language) {
++    if (params.context_callback == NULL
++     && (params.language == nullptr || strlen(params.language) == 0 || strcmp(params.language, "auto") == 0 || params.detect_language)) {
+         std::vector<float> probs(whisper_lang_max_id() + 1, 0.0f);
+ 
+         const auto lang_id = whisper_lang_auto_detect_with_state(ctx, state, 0, params.n_threads, probs.data());
+@@ -7031,6 +7035,24 @@ int whisper_full_with_state(
+         if (!prompt_init_built) {
+             prompt_init_built = true;
+ 
++            // call context callback to inject external context (prompt tokens + language)
++            if (params.context_callback) {
++                std::vector<whisper_token> ctx_tokens(max_prompt_ctx);
++                int ctx_lang_id = -1;  // -1 means keep params.language
++                const int n_ctx = params.context_callback(ctx, state, ctx_tokens.data(),
++                                                          max_prompt_ctx, &ctx_lang_id, params.context_callback_user_data);
++                if (n_ctx > 0) {
++                    WHISPER_LOG_INFO("%s: context callback returned %d tokens\n", __func__, n_ctx);
++                    for (int i = 0; i < n_ctx; ++i) {
++                        prompt_past1.push_back(ctx_tokens[i]);
++                    }
++                }
++                if (ctx_lang_id >= 0) {
++                    WHISPER_LOG_INFO("%s: context callback set language to %s\n", __func__, whisper_lang_str(ctx_lang_id));
++                    params.language = whisper_lang_str(ctx_lang_id);
++                }
++            }
++
+             // these tokens determine the task that will be performed
+             prompt_init.push_back(whisper_token_sot(ctx));
+ 
+@@ -7839,6 +7861,9 @@ int whisper_full_parallel(
+         params_cur.progress_callback = nullptr;
+         params_cur.progress_callback_user_data = nullptr;
+ 
++        params_cur.context_callback = nullptr;
++        params_cur.context_callback_user_data = nullptr;
++
+         workers[i] = std::thread(whisper_full_with_state, ctx, states[i], std::move(params_cur), samples + start_samples, n_samples_cur);
+     }
+ 
+-- 
+2.47.2
+
+From 33627ce06875533cf91db1dd53dfa77349d12644 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 5 Jan 2026 17:25:57 +0100
+Subject: [PATCH 04/14] whisper: add whisper_set_vad_context
+
+---
+ include/whisper.h |  7 +++++++
+ src/whisper.cpp   | 13 ++++++++++++-
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/include/whisper.h b/include/whisper.h
+index 04f9168a..b825bb31 100644
+--- a/include/whisper.h
++++ b/include/whisper.h
+@@ -739,6 +739,13 @@ extern "C" {
+     WHISPER_API void whisper_vad_free_segments(struct whisper_vad_segments * segments);
+     WHISPER_API void whisper_vad_free         (struct whisper_vad_context  * ctx);
+ 
++    // Inject external VAD context for use with params.vad = true.
++    // The caller retains ownership - whisper will not free this context.
++    // Frees any previously set internal VAD context.
++    WHISPER_API void whisper_set_vad_context(
++            struct whisper_context * ctx,
++            struct whisper_vad_context * vctx);
++
+     ////////////////////////////////////////////////////////////////////////////
+ 
+     // Temporary helpers needed for exposing ggml interface
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 527fc4e3..85a32ea5 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -921,6 +921,7 @@ struct whisper_state {
+     int32_t exp_n_audio_ctx = 0; // 0 - use default
+ 
+     whisper_vad_context * vad_context = nullptr;
++    bool external_vad = false;
+ 
+     struct vad_segment_info {
+         int64_t orig_start;
+@@ -3835,7 +3836,7 @@ void whisper_free_state(struct whisper_state * state) {
+         // [EXPERIMENTAL] Token-level timestamps with DTW
+         aheads_masks_free(state->aheads_masks);
+ 
+-        if (state->vad_context != nullptr) {
++        if (state->vad_context != nullptr && !state->external_vad) {
+             whisper_vad_free(state->vad_context);
+             state->vad_context = nullptr;
+         }
+@@ -5467,6 +5468,16 @@ void whisper_vad_free_segments(whisper_vad_segments * segments) {
+     }
+ }
+ 
++void whisper_set_vad_context(
++        struct whisper_context * ctx,
++        struct whisper_vad_context * vctx) {
++    if (ctx->state->vad_context != nullptr && !ctx->state->external_vad) {
++        whisper_vad_free(ctx->state->vad_context);
++    }
++    ctx->state->vad_context = vctx;
++    ctx->state->external_vad = (vctx != nullptr);
++}
++
+ //////////////////////////////////
+ // Grammar - ported from llama.cpp
+ //////////////////////////////////
+-- 
+2.47.2
+
+From 7dd79cf59ef9a725f0b87b4f5ddbb240651f24fc Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 12 Jan 2026 11:47:28 +0100
+Subject: [PATCH 05/14] whisper: clamp duration_ms to vad samples
+
+---
+ src/whisper.cpp | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 85a32ea5..78ec6b4e 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -7813,6 +7813,10 @@ int whisper_full(
+         }
+         samples = vad_samples.data();
+         n_samples = vad_samples.size();
++        if (params.duration_ms > 0) {
++            const int filtered_duration_ms = (n_samples * 1000) / WHISPER_SAMPLE_RATE;
++            params.duration_ms = std::min(params.duration_ms, filtered_duration_ms);
++        }
+     }
+     return whisper_full_with_state(ctx, ctx->state, params, samples, n_samples);
+ }
+@@ -7840,6 +7844,10 @@ int whisper_full_parallel(
+         }
+         samples = vad_samples.data();
+         n_samples = vad_samples.size();
++        if (params.duration_ms > 0) {
++            const int filtered_duration_ms = (n_samples * 1000) / WHISPER_SAMPLE_RATE;
++            params.duration_ms = std::min(params.duration_ms, filtered_duration_ms);
++        }
+     }
+     int ret = 0;
+ 
+-- 
+2.47.2
+
+From 3b523aaa5a308343d1605f9eff28a3660f90bfdf Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Tue, 13 Jan 2026 13:13:11 +0100
+Subject: [PATCH 06/14] ggml-cpu: fix ggml_thread_apply_priority for Android
+
+---
+ ggml/src/ggml-cpu/ggml-cpu.c | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index f7ba1fe3..03bc52e1 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -2573,6 +2573,30 @@ static bool ggml_thread_apply_affinity(const bool * mask) {
+ }
+ 
+ static bool ggml_thread_apply_priority(int32_t prio) {
++#ifdef __ANDROID__
++    // On Android, use setpriority() with nice values instead of pthread_setschedparam()
++    // which requires root for SCHED_FIFO
++    int nice_value = 0;
++    switch (prio) {
++        case GGML_SCHED_PRIO_LOW:      nice_value =  10; break; // THREAD_PRIORITY_BACKGROUND
++        case GGML_SCHED_PRIO_NORMAL:   nice_value =   0; break; // THREAD_PRIORITY_DEFAULT
++        case GGML_SCHED_PRIO_MEDIUM:   nice_value =  -2; break; // THREAD_PRIORITY_FOREGROUND
++        case GGML_SCHED_PRIO_HIGH:     nice_value = -16; break; // THREAD_PRIORITY_AUDIO
++        case GGML_SCHED_PRIO_REALTIME: nice_value = -19; break; // THREAD_PRIORITY_URGENT_AUDIO
++    }
++
++    if (prio == GGML_SCHED_PRIO_NORMAL) {
++        // Keep inherited priority
++        return true;
++    }
++
++    int err = setpriority(PRIO_PROCESS, 0, nice_value);
++    if (err != 0) {
++        return false;
++    }
++
++    return true;
++#else
+     struct sched_param p;
+     int32_t policy = SCHED_OTHER;
+     switch (prio) {
+@@ -2595,6 +2619,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
+     }
+ 
+     return true;
++#endif
+ }
+ 
+ #else // unsupported platforms
+-- 
+2.47.2
+
+From f0ae75a6c6f2df8372ab86ebdb174a23b765895d Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Tue, 13 Jan 2026 13:13:29 +0100
+Subject: [PATCH 07/14] ggml: default Realtime CPU
+
+---
+ ggml/src/ggml-cpu/ggml-cpu.c | 1 +
+ ggml/src/ggml.c              | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 03bc52e1..52b7aba8 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -2592,6 +2592,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
+ 
+     int err = setpriority(PRIO_PROCESS, 0, nice_value);
+     if (err != 0) {
++        fprintf(stderr, "warn: failed to set thread priority %d (nice %d): %s (%d)\n", prio, nice_value, strerror(errno), errno);
+         return false;
+     }
+ 
+diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
+index 09b8eb46..f8d8279b 100644
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -7580,7 +7580,7 @@ void ggml_log_set(ggml_log_callback log_callback, void * user_data) {
+ 
+ void ggml_threadpool_params_init(struct ggml_threadpool_params * p, int n_threads) {
+     p->n_threads  = n_threads;
+-    p->prio       = 0;     // default priority (usually means normal or inherited)
++    p->prio       = GGML_SCHED_PRIO_REALTIME;
+     p->poll       = 50;    // hybrid-polling enabled
+     p->strict_cpu = false; // no strict placement (all threads share same cpumask)
+     p->paused     = false; // threads are ready to go
+-- 
+2.47.2
+
+From 84621e3e9ba45af9d21153a0c67f00bc33cd1223 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Fri, 2 Jan 2026 17:33:08 +0100
+Subject: [PATCH 08/14] vulkan: add Vulkan 1.1 support
+
+Explicitely load extensions that are Core in 1.2
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 311 ++++++++++++++++++++++-----
+ 1 file changed, 256 insertions(+), 55 deletions(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index deed5055..ab408f17 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -585,6 +585,8 @@ struct vk_device_struct {
+     bool multi_add;
+     bool shader_int64;
+     bool buffer_device_address;
++    // Not needed for Vulkan 1.2+ where it's a core function
++    PFN_vkGetBufferDeviceAddressKHR pfn_vkGetBufferDeviceAddress = nullptr;
+     bool vulkan_memory_model;
+ 
+     bool add_rms_fusion;
+@@ -2585,8 +2587,13 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
+     buf->size = size;
+ 
+     if (device->buffer_device_address) {
+-        const vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
+-        buf->bda_addr = device->device.getBufferAddress(addressInfo);
++        if (device->pfn_vkGetBufferDeviceAddress){
++            vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
++            buf->bda_addr = device->pfn_vkGetBufferDeviceAddress(device->device, &static_cast<VkBufferDeviceAddressInfo &>(addressInfo));
++        } else {
++            const vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
++            buf->bda_addr = device->device.getBufferAddress(addressInfo);
++        }
+     }
+ 
+     device->memory_logger->log_allocation(buf, size);
+@@ -4483,6 +4490,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device->physical_device = physical_devices[dev_num];
+         const std::vector<vk::ExtensionProperties> ext_props = device->physical_device.enumerateDeviceExtensionProperties();
+ 
++        vk::PhysicalDeviceProperties device_props = device->physical_device.getProperties();
++        const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
++
+         device->architecture = get_device_architecture(device->physical_device);
+ 
+         const char* GGML_VK_PREFER_HOST_MEMORY = getenv("GGML_VK_PREFER_HOST_MEMORY");
+@@ -4499,6 +4509,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ 
+         bool fp16_storage = false;
+         bool fp16_compute = false;
++        bool int8_storage = false;
+         bool maintenance4_support = false;
+         bool sm_builtins = false;
+         bool amd_shader_core_properties2 = false;
+@@ -4509,12 +4520,19 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device->integer_dot_product = false;
+         device->shader_64b_indexing = false;
+         bool bfloat16_support = false;
++        bool buffer_device_address_khr = false;
++        bool timeline_semaphore_khr = false;
++        bool vulkan_memory_model_khr = false;
++        bool shader_float_controls_khr = false;
++        bool descriptor_indexing_ext = false;
+ 
+         for (const auto& properties : ext_props) {
+             if (strcmp("VK_KHR_maintenance4", properties.extensionName) == 0) {
+                 maintenance4_support = true;
+             } else if (strcmp("VK_KHR_16bit_storage", properties.extensionName) == 0) {
+                 fp16_storage = true;
++            } else if (strcmp("VK_KHR_8bit_storage", properties.extensionName) == 0) {
++                int8_storage = true;
+             } else if (strcmp("VK_KHR_shader_float16_int8", properties.extensionName) == 0) {
+                 fp16_compute = true;
+             } else if (strcmp("VK_NV_shader_sm_builtins", properties.extensionName) == 0) {
+@@ -4559,9 +4577,31 @@ static vk_device ggml_vk_get_device(size_t idx) {
+             } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
+                 device->shader_64b_indexing = true;
+ #endif
++            } else if (strcmp("VK_KHR_buffer_device_address", properties.extensionName) == 0) {
++                buffer_device_address_khr = true;
++            } else if (strcmp("VK_KHR_timeline_semaphore", properties.extensionName) == 0) {
++                timeline_semaphore_khr = true;
++            } else if (strcmp("VK_KHR_vulkan_memory_model", properties.extensionName) == 0) {
++                vulkan_memory_model_khr = true;
++            } else if (strcmp("VK_KHR_shader_float_controls", properties.extensionName) == 0) {
++                shader_float_controls_khr = true;
++            } else if (strcmp("VK_EXT_descriptor_indexing", properties.extensionName) == 0) {
++                descriptor_indexing_ext = true;
+             }
+         }
+ 
++        if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
++            throw std::runtime_error("Unsupported device: timeline semaphores required");
++        }
++
++        if (!device_is_vulkan_12 && !fp16_storage) {
++            throw std::runtime_error("Unsupported device: 16-bit storage required");
++        }
++
++        if (!device_is_vulkan_12 && !int8_storage) {
++            throw std::runtime_error("Unsupported device: 8-bit storage required");
++        }
++
+         vk::PhysicalDeviceProperties2 props2;
+         vk::PhysicalDeviceMaintenance3Properties props3;
+         vk::PhysicalDeviceMaintenance4Properties props4;
+@@ -4571,6 +4611,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         vk::PhysicalDeviceShaderCoreProperties2AMD amd_shader_core_properties2_props;
+         vk::PhysicalDeviceVulkan11Properties vk11_props;
+         vk::PhysicalDeviceVulkan12Properties vk12_props;
++        vk::PhysicalDeviceFloatControlsProperties float_controls_props;
+         vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_props;
+         vk::PhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_props;
+         vk::PhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_props;
+@@ -4578,10 +4619,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         props2.pNext = &props3;
+         props3.pNext = &subgroup_props;
+         subgroup_props.pNext = &driver_props;
+-        driver_props.pNext = &vk11_props;
+-        vk11_props.pNext = &vk12_props;
+ 
+-        VkBaseOutStructure * last_struct = (VkBaseOutStructure *)&vk12_props;
++        VkBaseOutStructure * last_struct;
++
++        if (device_is_vulkan_12) {
++            driver_props.pNext = &vk11_props;
++            vk11_props.pNext = &vk12_props;
++            last_struct = (VkBaseOutStructure *)&vk12_props;
++        } else {
++            if (shader_float_controls_khr) {
++                driver_props.pNext = &float_controls_props;
++                last_struct = (VkBaseOutStructure *)&float_controls_props;
++            } else {
++                last_struct = (VkBaseOutStructure *)&driver_props;
++            }
++        }
+ 
+         if (maintenance4_support) {
+             last_struct->pNext = (VkBaseOutStructure *)&props4;
+@@ -4679,28 +4731,35 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         } else {
+             device->shader_core_count = 0;
+         }
+-        device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
+ 
+-        device->subgroup_basic = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                 (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
+-        device->subgroup_arithmetic = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                      (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eArithmetic);
++        if (device_is_vulkan_12) {
++            device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
++        } else {
++            device->float_controls_rte_fp16 = shader_float_controls_khr ? float_controls_props.shaderRoundingModeRTEFloat16 : false;
++        }
++
++        device->subgroup_basic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                 (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
++
++        device->subgroup_arithmetic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                      (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eArithmetic);
+ #ifdef __APPLE__
+         // Workaround for subgroup arithmetic failing on MoltenVK with AMD GPUs (issue 15846)
+         if (device->vendor_id == VK_VENDOR_ID_AMD) {
+             device->subgroup_arithmetic = false;
+         }
+ #endif
+-        device->subgroup_shuffle = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                   (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
+-        device->subgroup_clustered = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                     (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
++        // All subgroup operations use subgroup_props (always queried for Vulkan 1.1 and 1.2)
++        device->subgroup_shuffle = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                   (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
++        device->subgroup_clustered = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                     (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
+ 
+-        device->subgroup_ballot = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                  (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eBallot);
++        device->subgroup_ballot = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                  (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBallot);
+ 
+-        device->subgroup_vote = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eVote);
++        device->subgroup_vote = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
++                                (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eVote);
+ 
+         const bool force_disable_f16 = getenv("GGML_VK_DISABLE_F16") != nullptr;
+ 
+@@ -4743,17 +4802,78 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device_features2.pNext = nullptr;
+         device_features2.features = (VkPhysicalDeviceFeatures)device_features;
+ 
+-        VkPhysicalDeviceVulkan11Features vk11_features;
+-        vk11_features.pNext = nullptr;
+-        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+-        device_features2.pNext = &vk11_features;
++        VkPhysicalDeviceVulkan11Features vk11_features {};
++        VkPhysicalDeviceVulkan12Features vk12_features {};
++
++        // Used when Vulkan 1.2 API not available
++        VkPhysicalDevice16BitStorageFeatures storage_16bit_features {};
++        VkPhysicalDevice8BitStorageFeatures storage_8bit_features {};
++        VkPhysicalDeviceShaderFloat16Int8Features float16_int8_features {};
++        VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features {};
++        VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features {};
++        VkPhysicalDeviceVulkanMemoryModelFeatures vulkan_memory_model_features {};
++        VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features {};
++
++        if (device_is_vulkan_12) {
++            // Use vk11 and vk12 features structures
++            vk11_features.pNext = nullptr;
++            vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
++            device_features2.pNext = &vk11_features;
++
++            vk12_features.pNext = nullptr;
++            vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++            vk11_features.pNext = &vk12_features;
++
++            last_struct = (VkBaseOutStructure *)&vk12_features;
++        } else {
++            // Use individual extension structures
++            storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
++            storage_16bit_features.pNext = nullptr;
++            device_features2.pNext = &storage_16bit_features;
++            last_struct = (VkBaseOutStructure *)&storage_16bit_features;
+ 
+-        VkPhysicalDeviceVulkan12Features vk12_features;
+-        vk12_features.pNext = nullptr;
+-        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+-        vk11_features.pNext = &vk12_features;
++            if (int8_storage) {
++                storage_8bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES;
++                storage_8bit_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&storage_8bit_features;
++                last_struct = (VkBaseOutStructure *)&storage_8bit_features;
++            }
+ 
+-        last_struct = (VkBaseOutStructure *)&vk12_features;
++            if (fp16_compute) {
++                float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
++                float16_int8_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&float16_int8_features;
++                last_struct = (VkBaseOutStructure *)&float16_int8_features;
++            }
++
++            if (buffer_device_address_khr) {
++                buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
++                buffer_device_address_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&buffer_device_address_features;
++                last_struct = (VkBaseOutStructure *)&buffer_device_address_features;
++            }
++
++            if (descriptor_indexing_ext) {
++                descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
++                descriptor_indexing_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&descriptor_indexing_features;
++                last_struct = (VkBaseOutStructure *)&descriptor_indexing_features;
++            }
++
++            if (vulkan_memory_model_khr) {
++                vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES;
++                vulkan_memory_model_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&vulkan_memory_model_features;
++                last_struct = (VkBaseOutStructure *)&vulkan_memory_model_features;
++            }
++
++            if (timeline_semaphore_khr) {
++                timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
++                timeline_semaphore_features.pNext = nullptr;
++                last_struct->pNext = (VkBaseOutStructure *)&timeline_semaphore_features;
++                last_struct = (VkBaseOutStructure *)&timeline_semaphore_features;
++            }
++        }
+ 
+         VkPhysicalDevicePipelineRobustnessFeaturesEXT pl_robustness_features;
+         pl_robustness_features.pNext = nullptr;
+@@ -4861,9 +4981,29 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ 
+         vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
+ 
++        bool shader_float16_supported;
++        bool buffer_device_address_supported;
++        bool vulkan_memory_model_supported;
++        bool storage_buffer_16bit_access_supported;
++        bool shader_rounding_mode_rte_fp16;
++
++        if (device_is_vulkan_12) {
++            shader_float16_supported = vk12_features.shaderFloat16;
++            buffer_device_address_supported = vk12_features.bufferDeviceAddress;
++            vulkan_memory_model_supported = vk12_features.vulkanMemoryModel;
++            storage_buffer_16bit_access_supported = vk11_features.storageBuffer16BitAccess;
++            shader_rounding_mode_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
++        } else {
++            shader_float16_supported = float16_int8_features.shaderFloat16;
++            buffer_device_address_supported = buffer_device_address_features.bufferDeviceAddress && buffer_device_address_khr;
++            vulkan_memory_model_supported = vulkan_memory_model_features.vulkanMemoryModel && vulkan_memory_model_khr;
++            storage_buffer_16bit_access_supported = storage_16bit_features.storageBuffer16BitAccess;
++            shader_rounding_mode_rte_fp16 = shader_float_controls_khr ? float_controls_props.shaderRoundingModeRTEFloat16 : false;
++        }
++
+         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
+ 
+-        device->fp16 = device->fp16 && vk12_features.shaderFloat16;
++        device->fp16 = device->fp16 && shader_float16_supported;
+ 
+ #if defined(VK_KHR_shader_bfloat16)
+         device->bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
+@@ -4873,13 +5013,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ 
+         device->pipeline_robustness = pl_robustness_features.pipelineRobustness;
+ 
+-        device->multi_add = vk12_props.shaderRoundingModeRTEFloat16 &&
++        device->multi_add = shader_rounding_mode_rte_fp16 &&
+                             device->properties.limits.maxPushConstantsSize >= sizeof(vk_op_multi_add_push_constants) &&
+                             getenv("GGML_VK_DISABLE_MULTI_ADD") == nullptr;
+ 
+         device->shader_int64 = device_features2.features.shaderInt64;
+-        device->buffer_device_address = vk12_features.bufferDeviceAddress;
+-        device->vulkan_memory_model = vk12_features.vulkanMemoryModel;
++        device->buffer_device_address = buffer_device_address_supported;
++        device->vulkan_memory_model = vulkan_memory_model_supported;
+ 
+         if (device->subgroup_size_control) {
+             device->subgroup_min_size = subgroup_size_control_props.minSubgroupSize;
+@@ -4911,7 +5051,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+                 coopmat2_features.cooperativeMatrixPerElementOperations &&
+                 coopmat2_features.cooperativeMatrixTensorAddressing &&
+                 coopmat2_features.cooperativeMatrixBlockLoads &&
+-                vk12_features.bufferDeviceAddress) {
++                buffer_device_address_supported) {
+ 
+                 std::vector<VkCooperativeMatrixFlexibleDimensionsPropertiesNV> flexible_dimensions;
+                 uint32_t count = 0;
+@@ -4978,21 +5118,47 @@ static vk_device ggml_vk_get_device(size_t idx) {
+ #endif
+         }
+ 
+-        if (!vk11_features.storageBuffer16BitAccess) {
++        if (!storage_buffer_16bit_access_supported) {
+             std::cerr << "ggml_vulkan: device " << GGML_VK_NAME << idx << " does not support 16-bit storage." << std::endl;
+             throw std::runtime_error("Unsupported device");
+         }
+ 
+-        device_extensions.push_back("VK_KHR_16bit_storage");
++        if (fp16_storage) {
++            device_extensions.push_back("VK_KHR_16bit_storage");
++        }
++
++        if (!device_is_vulkan_12 && timeline_semaphore_khr) {
++            device_extensions.push_back("VK_KHR_timeline_semaphore");
++        }
++
++        if (!device_is_vulkan_12 && int8_storage) {
++            device_extensions.push_back("VK_KHR_8bit_storage");
++        }
+ 
+ #ifdef GGML_VULKAN_VALIDATE
+         device_extensions.push_back("VK_KHR_shader_non_semantic_info");
+ #endif
+ 
+-        if (device->fp16) {
++        if (!device_is_vulkan_12 && device->fp16) {
+             device_extensions.push_back("VK_KHR_shader_float16_int8");
+         }
+ 
++        if (!device_is_vulkan_12 && device->buffer_device_address && buffer_device_address_khr) {
++            device_extensions.push_back("VK_KHR_buffer_device_address");
++        }
++
++        if (!device_is_vulkan_12 && device->vulkan_memory_model && vulkan_memory_model_khr) {
++            device_extensions.push_back("VK_KHR_vulkan_memory_model");
++        }
++
++        if (!device_is_vulkan_12 && shader_float_controls_khr) {
++            device_extensions.push_back("VK_KHR_shader_float_controls");
++        }
++
++        if (!device_is_vulkan_12 && descriptor_indexing_ext) {
++            device_extensions.push_back("VK_EXT_descriptor_indexing");
++        }
++
+ #if defined(VK_KHR_cooperative_matrix)
+         if (device->coopmat_support) {
+             // Query supported shapes
+@@ -5116,6 +5282,15 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         device_create_info.setPNext(&device_features2);
+         device->device = device->physical_device.createDevice(device_create_info);
+ 
++        if (!device_is_vulkan_12 && device->buffer_device_address) {
++            device->pfn_vkGetBufferDeviceAddress = (PFN_vkGetBufferDeviceAddressKHR)
++                vkGetDeviceProcAddr(device->device, "vkGetBufferDeviceAddressKHR");
++
++            if (!device->pfn_vkGetBufferDeviceAddress) {
++                throw std::runtime_error("Failed to load vkGetBufferDeviceAddressKHR");
++            }
++        }
++
+         // Queues
+         ggml_vk_create_queue(device, device->compute_queue, compute_queue_family_index, 0, { vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer }, false);
+ 
+@@ -5178,7 +5353,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info(
+             {},
+             dsl_binding);
+-        descriptor_set_layout_create_info.setPNext(&dslbfci);
++        if (device_is_vulkan_12 || descriptor_indexing_ext) {
++            descriptor_set_layout_create_info.setPNext(&dslbfci);
++        }
++
+         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
+ 
+         ggml_vk_load_shaders(device);
+@@ -5276,6 +5454,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+ 
+     const vk_device_architecture device_architecture = get_device_architecture(physical_device);
+ 
++    vk::PhysicalDeviceProperties device_props = physical_device.getProperties();
++    const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
++
+     const char* GGML_VK_DISABLE_F16 = getenv("GGML_VK_DISABLE_F16");
+     bool force_disable_f16 = GGML_VK_DISABLE_F16 != nullptr;
+ 
+@@ -5304,18 +5485,26 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+     device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+     device_features2.pNext = nullptr;
+ 
+-    VkPhysicalDeviceVulkan11Features vk11_features;
+-    vk11_features.pNext = nullptr;
+-    vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+-    device_features2.pNext = &vk11_features;
++    VkPhysicalDeviceVulkan11Features vk11_features {};
++    VkPhysicalDeviceVulkan12Features vk12_features {};
++    VkPhysicalDeviceShaderFloat16Int8Features float16_int8_features {};
+ 
+-    VkPhysicalDeviceVulkan12Features vk12_features;
+-    vk12_features.pNext = nullptr;
+-    vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+-    vk11_features.pNext = &vk12_features;
++    if (device_is_vulkan_12) {
++        vk11_features.pNext = nullptr;
++        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
++        device_features2.pNext = &vk11_features;
+ 
+-    // Pointer to the last chain element
+-    last_struct = (VkBaseOutStructure *)&vk12_features;
++        vk12_features.pNext = nullptr;
++        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
++        vk11_features.pNext = &vk12_features;
++
++        last_struct = (VkBaseOutStructure *)&vk12_features;
++    } else {
++        float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
++        float16_int8_features.pNext = nullptr;
++        device_features2.pNext = &float16_int8_features;
++        last_struct = (VkBaseOutStructure *)&float16_int8_features;
++    }
+ 
+ #if defined(GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
+     VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopmat_features;
+@@ -5347,7 +5536,8 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+ 
+     vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
+ 
+-    fp16 = fp16 && vk12_features.shaderFloat16;
++    bool shader_float16_supported = device_is_vulkan_12 ? vk12_features.shaderFloat16 : float16_int8_features.shaderFloat16;
++    fp16 = fp16 && shader_float16_supported;
+ 
+ #if defined(VK_KHR_shader_bfloat16)
+     bool bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
+@@ -5402,9 +5592,9 @@ static void ggml_vk_instance_init() {
+ 
+     uint32_t api_version = vk::enumerateInstanceVersion();
+ 
+-    if (api_version < VK_API_VERSION_1_2) {
+-        std::cerr << "ggml_vulkan: Error: Vulkan 1.2 required." << std::endl;
+-        throw vk::SystemError(vk::Result::eErrorFeatureNotPresent, "Vulkan 1.2 required");
++    if (api_version < VK_API_VERSION_1_1) {
++        std::cerr << "ggml_vulkan: Error: Vulkan 1.1 required." << std::endl;
++        throw vk::SystemError(vk::Result::eErrorFeatureNotPresent, "Vulkan 1.1 required");
+     }
+ 
+     vk::ApplicationInfo app_info{ "ggml-vulkan", 1, nullptr, 0, api_version };
+@@ -15160,17 +15350,28 @@ static bool ggml_vk_instance_debug_utils_ext_available(
+ }
+ 
+ static bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
++    vk::PhysicalDeviceProperties device_props = vkdev.getProperties();
++    const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
++
+     VkPhysicalDeviceFeatures2 device_features2;
+     device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+ 
+-    VkPhysicalDeviceVulkan11Features vk11_features;
+-    vk11_features.pNext = nullptr;
+-    vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+-    device_features2.pNext = &vk11_features;
++    VkPhysicalDeviceVulkan11Features vk11_features {};
++    VkPhysicalDevice16BitStorageFeatures storage_16bit_features {};
++
++    if (device_is_vulkan_12) {
++        vk11_features.pNext = nullptr;
++        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
++        device_features2.pNext = &vk11_features;
++    } else {
++        storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
++        storage_16bit_features.pNext = nullptr;
++        device_features2.pNext = &storage_16bit_features;
++    }
+ 
+     vkGetPhysicalDeviceFeatures2(vkdev, &device_features2);
+ 
+-    return vk11_features.storageBuffer16BitAccess;
++    return device_is_vulkan_12 ? vk11_features.storageBuffer16BitAccess : storage_16bit_features.storageBuffer16BitAccess;
+ }
+ 
+ static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDeviceProperties& props, const vk::PhysicalDeviceDriverProperties& driver_props, vk_device_architecture arch) {
+-- 
+2.47.2
+
+From e5076b627c0b721da4495c434c2b5b2084234f26 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 19 Jan 2026 13:25:52 +0100
+Subject: [PATCH 09/14] vulkan: add 1.1 shader compatibility mode
+
+if GGML_VULKAN_MIN_1_1 is defined:
+
+ - rte shaders will be built with 1.1 API and "SPV_KHR_float_controls"
+   spirv extension.
+ - all no _cm2 shaders will be built with 1.1 API
+
+No changes if GGML_VULKAN_MIN_1_1 is not defined (default).
+---
+ ggml/CMakeLists.txt                           |  1 +
+ ggml/src/ggml-vulkan/CMakeLists.txt           |  5 ++++
+ .../ggml-vulkan/vulkan-shaders/CMakeLists.txt |  3 ++
+ ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl  |  6 +++-
+ .../vulkan-shaders/vulkan-shaders-gen.cpp     | 29 +++++++++++++++++--
+ 5 files changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
+index 0176ca1c..4c8b45f1 100644
+--- a/ggml/CMakeLists.txt
++++ b/ggml/CMakeLists.txt
+@@ -222,6 +222,7 @@ option(GGML_VULKAN_MEMORY_DEBUG             "ggml: enable Vulkan memory debug ou
+ option(GGML_VULKAN_SHADER_DEBUG_INFO        "ggml: enable Vulkan shader debug info"           OFF)
+ option(GGML_VULKAN_VALIDATE                 "ggml: enable Vulkan validation"                  OFF)
+ option(GGML_VULKAN_RUN_TESTS                "ggml: run Vulkan tests"                          OFF)
++option(GGML_VULKAN_MIN_1_1                  "ggml: target Vulkan 1.1 minimum (SPIR-V 1.3)"    OFF)
+ option(GGML_WEBGPU                          "ggml: use WebGPU"                                OFF)
+ option(GGML_WEBGPU_DEBUG                    "ggml: enable WebGPU debug output"                OFF)
+ option(GGML_WEBGPU_CPU_PROFILE              "ggml: enable WebGPU profiling (CPU)"             OFF)
+diff --git a/ggml/src/ggml-vulkan/CMakeLists.txt b/ggml/src/ggml-vulkan/CMakeLists.txt
+index de01336c..b5a5d816 100644
+--- a/ggml/src/ggml-vulkan/CMakeLists.txt
++++ b/ggml/src/ggml-vulkan/CMakeLists.txt
+@@ -112,6 +112,11 @@ if (Vulkan_FOUND)
+         list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_SHADER_DEBUG_INFO=ON)
+     endif()
+ 
++    if (GGML_VULKAN_MIN_1_1)
++        add_compile_definitions(GGML_VULKAN_MIN_1_1)
++        list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_MIN_1_1=ON)
++    endif()
++
+     if (GGML_VULKAN_VALIDATE)
+         add_compile_definitions(GGML_VULKAN_VALIDATE)
+     endif()
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
+index e1f613fb..393d21b3 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
+@@ -23,6 +23,9 @@ if (GGML_VULKAN_SHADER_DEBUG_INFO)
+     add_compile_definitions(GGML_VULKAN_SHADER_DEBUG_INFO)
+     message(STATUS "Enabling shader debug info")
+ endif()
++if (GGML_VULKAN_MIN_1_1)
++    add_compile_definitions(GGML_VULKAN_MIN_1_1)
++endif()
+ 
+ set(TARGET vulkan-shaders-gen)
+ add_executable(${TARGET} vulkan-shaders-gen.cpp)
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl b/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
+index ad51c1e8..ce7ac8d8 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
+@@ -1,5 +1,9 @@
+ 
+ #if RTE16
+ #extension GL_EXT_spirv_intrinsics : enable
+-spirv_execution_mode(capabilities = [4467], 4462, 16); // RoundingModeRTE, 16 bits
++spirv_execution_mode(
++#ifdef VULKAN11_RTE
++    extensions = ["SPV_KHR_float_controls"],
++#endif
++    capabilities = [4467], 4462, 16); // RoundingModeRTE, 16 bits
+ #endif // RTE16
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+index bbdbf9dc..f809658b 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+@@ -322,7 +322,21 @@ compile_count_guard acquire_compile_slot() {
+ }
+ 
+ void string_to_spv_func(std::string name, std::string in_path, std::string out_path, std::map<std::string, std::string> defines, bool coopmat, bool dep_file, compile_count_guard slot) {
+-    std::string target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
++    std::string target_env;
++    bool is_vulkan11;
++#ifdef GGML_VULKAN_MIN_1_1
++    // Vulkan 1.1 compatibility mode
++    if (name.find("_cm2") != std::string::npos) {
++        target_env = "--target-env=vulkan1.3";
++        is_vulkan11 = false;
++    } else {
++        target_env = "--target-env=vulkan1.1";
++        is_vulkan11 = true;
++    }
++#else
++    target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
++    is_vulkan11 = false;
++#endif
+ 
+     #ifdef _WIN32
+         std::vector<std::string> cmd = {GLSLC, "-fshader-stage=compute", target_env, "\"" + in_path + "\"", "-o", "\"" + out_path + "\""};
+@@ -333,7 +347,13 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
+     // disable spirv-opt for coopmat shaders for https://github.com/ggerganov/llama.cpp/issues/10734
+     // disable spirv-opt for bf16 shaders for https://github.com/ggml-org/llama.cpp/issues/15344
+     // disable spirv-opt for rope shaders for https://github.com/ggml-org/llama.cpp/issues/16860
+-    if (!coopmat && name.find("bf16") == std::string::npos && name.find("rope") == std::string::npos) {
++    // disable spirv-opt for RTE shaders with vulkan1.1: spirv-opt rejects RoundingModeRTE with vulkan1.1 target
++    bool has_rte = (name.find("_rte") != std::string::npos) ||
++                   (defines.find("RTE16") != defines.end() && defines.at("RTE16") == "1");
++    if (!coopmat &&
++        name.find("bf16") == std::string::npos &&
++        name.find("rope") == std::string::npos &&
++        !(has_rte && is_vulkan11)) {
+         cmd.push_back("-O");
+     }
+ 
+@@ -351,6 +371,11 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
+         cmd.push_back("-g");
+     #endif
+ 
++    // Need SPV_KHR_float_controls extension for Vulkan 1.1 RTE shaders
++    if (is_vulkan11 && has_rte) {
++        cmd.push_back("-DVULKAN11_RTE=1");
++    }
++
+     for (const auto& define : defines) {
+         cmd.push_back("-D" + define.first + "=" + define.second);
+     }
+-- 
+2.47.2
+
+From 0b413753a08b764904d019645dc149dc45c97843 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 19 Jan 2026 12:59:45 +0100
+Subject: [PATCH 10/14] vulkan: don't throw an exception when init fails
+
+Print error and fallback to CPU instead.
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 45 +++++++++++++++++++++++-----
+ 1 file changed, 37 insertions(+), 8 deletions(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index ab408f17..0347858d 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -550,6 +550,8 @@ static constexpr std::initializer_list<std::array<int, 3>> rms_norm_mul_rope_vie
+ struct vk_device_struct {
+     std::recursive_mutex mutex;
+ 
++    bool initialization_failed = false;
++
+     vk::PhysicalDevice physical_device;
+     vk::PhysicalDeviceProperties properties;
+     std::string name;
+@@ -4483,8 +4485,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         std::vector<vk::PhysicalDevice> physical_devices = vk_instance.instance.enumeratePhysicalDevices();
+ 
+         if (dev_num >= physical_devices.size()) {
+-            std::cerr << "ggml_vulkan: Device with index " << dev_num << " does not exist." << std::endl;
+-            throw std::runtime_error("Device not found");
++            device->initialization_failed = true;
++            GGML_LOG_ERROR("Device with index %zu does not exist", dev_num);
++            return nullptr;
+         }
+ 
+         device->physical_device = physical_devices[dev_num];
+@@ -4591,15 +4594,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         }
+ 
+         if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
+-            throw std::runtime_error("Unsupported device: timeline semaphores required");
++            device->initialization_failed = true;
++            GGML_LOG_ERROR("Unsupported device: timeline semaphores required");
++            return nullptr;
+         }
+ 
+         if (!device_is_vulkan_12 && !fp16_storage) {
+-            throw std::runtime_error("Unsupported device: 16-bit storage required");
++            device->initialization_failed = true;
++            GGML_LOG_ERROR("Unsupported device: 16-bit storage required");
++            return nullptr;
+         }
+ 
+         if (!device_is_vulkan_12 && !int8_storage) {
+-            throw std::runtime_error("Unsupported device: 8-bit storage required");
++            device->initialization_failed = true;
++            GGML_LOG_ERROR("Unsupported device: 8-bit storage required");
++            return nullptr;
+         }
+ 
+         vk::PhysicalDeviceProperties2 props2;
+@@ -5287,7 +5296,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+                 vkGetDeviceProcAddr(device->device, "vkGetBufferDeviceAddressKHR");
+ 
+             if (!device->pfn_vkGetBufferDeviceAddress) {
+-                throw std::runtime_error("Failed to load vkGetBufferDeviceAddressKHR");
++                device->initialization_failed = true;
++                GGML_LOG_ERROR("Failed to load vkGetBufferDeviceAddressKHR");
++                return nullptr;
+             }
+         }
+ 
+@@ -5398,7 +5409,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         return device;
+     }
+ 
+-    return vk_instance.devices[idx];
++    vk_device device = vk_instance.devices[idx];
++    if (device->initialization_failed) {
++        return nullptr;
++    }
++    return device;
+ }
+ 
+ static void ggml_vk_print_gpu_info(size_t idx) {
+@@ -5823,6 +5838,9 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
+     ctx->name = GGML_VK_NAME + std::to_string(idx);
+ 
+     ctx->device = ggml_vk_get_device(idx);
++    if (!ctx->device) {
++        return;
++    }
+ 
+     ctx->semaphore_idx = 0;
+     ctx->event_idx = 0;
+@@ -13152,6 +13170,9 @@ ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num) {
+     VK_LOG_DEBUG("ggml_backend_vk_buffer_type(" << dev_num << ")");
+ 
+     vk_device dev = ggml_vk_get_device(dev_num);
++    if (!dev) {
++        return nullptr;
++    }
+ 
+     return &dev->buffer_type;
+ }
+@@ -13227,7 +13248,10 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
+ 
+     // Make sure device 0 is initialized
+     ggml_vk_instance_init();
+-    ggml_vk_get_device(0);
++    vk_device dev = ggml_vk_get_device(0);
++    if (!dev) {
++        return nullptr;
++    }
+ 
+     return &ggml_backend_vk_buffer_type_host;
+ }
+@@ -14425,6 +14449,11 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
+     ggml_backend_vk_context * ctx = new ggml_backend_vk_context;
+     ggml_vk_init(ctx, dev_num);
+ 
++    if (!ctx->device) {
++        delete ctx;
++        return nullptr;
++    }
++
+     ggml_backend_t vk_backend = new ggml_backend {
+         /* .guid    = */ ggml_backend_vk_guid(),
+         /* .iface   = */ ggml_backend_vk_interface,
+-- 
+2.47.2
+
+From ba13416503454a26a0724db62cc60c5d1ac327f8 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 19 Jan 2026 12:59:55 +0100
+Subject: [PATCH 11/14] add whisper_ctx_is_using_gpu
+
+---
+ include/whisper.h |  3 +++
+ src/whisper.cpp   | 27 +++++++++++++++++++++++++++
+ 2 files changed, 30 insertions(+)
+
+diff --git a/include/whisper.h b/include/whisper.h
+index b825bb31..f958cc2e 100644
+--- a/include/whisper.h
++++ b/include/whisper.h
+@@ -264,6 +264,9 @@ extern "C" {
+                     const char * device,
+                     const char * cache_dir);
+ 
++    // Check if the context is using a GPU or IGPU backend
++    WHISPER_API bool whisper_ctx_is_using_gpu(struct whisper_context * ctx);
++
+     // Frees all allocated memory
+     WHISPER_API void whisper_free      (struct whisper_context * ctx);
+     WHISPER_API void whisper_free_state(struct whisper_state * state);
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 78ec6b4e..300b835e 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -3845,6 +3845,33 @@ void whisper_free_state(struct whisper_state * state) {
+     }
+ }
+ 
++bool whisper_ctx_is_using_gpu(struct whisper_context * ctx) {
++    if (!ctx) {
++        return false;
++    }
++
++    if (!ctx->state) {
++        return false;
++    }
++
++    if (ctx->state->backends.empty()) {
++        return false;
++    }
++
++    ggml_backend_t backend = ctx->state->backends[0];
++    if (!backend) {
++        return false;
++    }
++
++    ggml_backend_dev_t dev = ggml_backend_get_device(backend);
++    if (!dev) {
++        return false;
++    }
++
++    enum ggml_backend_dev_type dev_type = ggml_backend_dev_type(dev);
++    return dev_type == GGML_BACKEND_DEVICE_TYPE_GPU || dev_type == GGML_BACKEND_DEVICE_TYPE_IGPU;
++}
++
+ void whisper_free(struct whisper_context * ctx) {
+     if (ctx) {
+         for (ggml_context * context : ctx->model.ctxs) {
+-- 
+2.47.2
+
+From 76e87d7db556384bd77e355d8597bfd5a2a3c04b Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Mon, 19 Jan 2026 14:18:08 +0100
+Subject: [PATCH 12/14] ggml: fix android 32bit build
+
+RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulkan.cpp:1922:92: error: invalid operands to binary expression ('basic_ostream<char, char_traits<char>>' and 'vk::Buffer')
+   1922 |     VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 0347858d..3771e55b 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1919,7 +1919,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
+     allocations[buf->buffer] = size;
+     total_device += device ? size : 0;
+     total_host += device ? 0 : size;
+-    VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
++    VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << static_cast<VkBuffer>(buf->buffer) << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
+ }
+ 
+ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
+@@ -1935,10 +1935,10 @@ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
+     total_device -= device ? it->second : 0;
+     total_host -= device ? 0 : it->second;
+     if (it != allocations.end()) {
+-        VK_LOG_MEMORY(buf->device->name << ": -" << format_size(it->second) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
++        VK_LOG_MEMORY(buf->device->name << ": -" << format_size(it->second) << " " << type << " at " << static_cast<VkBuffer>(buf->buffer) << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
+         allocations.erase(it);
+     } else {
+-        VK_LOG_MEMORY("ERROR " << buf->device->name << ": Attempted to deallocate unknown " << type << " memory at " << buf->buffer);
++        VK_LOG_MEMORY("ERROR " << buf->device->name << ": Attempted to deallocate unknown " << type << " memory at " << static_cast<VkBuffer>(buf->buffer));
+     }
+ }
+ 
+-- 
+2.47.2
+
+From 8ece29fa0c3cdaaaf6d4c92e5e3a1723b0956d0c Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Tue, 20 Jan 2026 12:48:45 +0100
+Subject: [PATCH 13/14] whisper: use int64_t for
+ whisper_vad_segments_get_segment_t*
+
+Don't do a int64_t -> float conversion, when not needed. (struct
+whisper_vad_segment use int64_t).
+---
+ include/whisper.h | 4 ++--
+ src/whisper.cpp   | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/include/whisper.h b/include/whisper.h
+index f958cc2e..b14c3f59 100644
+--- a/include/whisper.h
++++ b/include/whisper.h
+@@ -736,8 +736,8 @@ extern "C" {
+ 
+     WHISPER_API int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments);
+ 
+-    WHISPER_API float whisper_vad_segments_get_segment_t0(struct whisper_vad_segments * segments, int i_segment);
+-    WHISPER_API float whisper_vad_segments_get_segment_t1(struct whisper_vad_segments * segments, int i_segment);
++    WHISPER_API int64_t whisper_vad_segments_get_segment_t0(struct whisper_vad_segments * segments, int i_segment);
++    WHISPER_API int64_t whisper_vad_segments_get_segment_t1(struct whisper_vad_segments * segments, int i_segment);
+ 
+     WHISPER_API void whisper_vad_free_segments(struct whisper_vad_segments * segments);
+     WHISPER_API void whisper_vad_free         (struct whisper_vad_context  * ctx);
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index 300b835e..e0389ecc 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -5197,11 +5197,11 @@ int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments) {
+     return segments->data.size();
+ }
+ 
+-float whisper_vad_segments_get_segment_t0(struct whisper_vad_segments * segments, int i_segment) {
++int64_t whisper_vad_segments_get_segment_t0(struct whisper_vad_segments * segments, int i_segment) {
+     return segments->data[i_segment].start;
+ }
+ 
+-float whisper_vad_segments_get_segment_t1(struct whisper_vad_segments * segments, int i_segment) {
++int64_t whisper_vad_segments_get_segment_t1(struct whisper_vad_segments * segments, int i_segment) {
+     return segments->data[i_segment].end;
+ }
+ 
+-- 
+2.47.2
+
+From 0332d9c49874ae5fdcbdf488ec44f0dfb9e21723 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Tue, 20 Jan 2026 12:22:23 +0100
+Subject: [PATCH 14/14] vulkan: propagate pipeline failure
+
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 3771e55b..5f00aa67 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1805,6 +1805,9 @@ struct ggml_backend_vk_context {
+     // and set to true after the buffer contents are consumed.
+     bool prealloc_x_need_sync, prealloc_y_need_sync, prealloc_split_k_need_sync;
+ 
++    // Set when pipeline dispatch fails (e.g., shader failed to compile)
++    std::atomic<bool> compute_failed {};
++
+     vk_context_ref compute_ctx;
+     vk_context_ref transfer_ctx;
+ 
+@@ -6347,6 +6350,12 @@ template <typename T, uint32_t N> const T *push_constant_data(const std::array<T
+ 
+ template <typename T>
+ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& subctx, vk_pipeline& pipeline, std::initializer_list<vk::DescriptorBufferInfo> const& descriptor_buffer_infos, const T &push_constants, std::array<uint32_t, 3> elements) {
++    if (!pipeline->compiled || !pipeline->pipeline) {
++        GGML_LOG_ERROR("ggml_vulkan: Pipeline %s not compiled, cannot dispatch\n", pipeline->name.c_str());
++        ctx->compute_failed = true;
++        return;
++    }
++
+     const uint32_t wg0 = CEIL_DIV(elements[0], pipeline->wg_denoms[0]);
+     const uint32_t wg1 = CEIL_DIV(elements[1], pipeline->wg_denoms[1]);
+     const uint32_t wg2 = CEIL_DIV(elements[2], pipeline->wg_denoms[2]);
+@@ -13855,6 +13864,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     ctx->prealloc_size_add_rms_partials_offset = 0;
+     ctx->do_add_rms_partials = false;
+     ctx->do_add_rms_partials_offset_calculation = false;
++    ctx->compute_failed = false;
+ 
+     int last_node = cgraph->n_nodes - 1;
+ 
+@@ -13929,6 +13939,10 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     uint64_t total_mul_mat_bytes = 0;
+     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
+     for (int i = 0; i < cgraph->n_nodes; i++) {
++        if (ctx->compute_failed) {
++            break;
++        }
++
+         if (first_node_in_batch) {
+             submit_node_idx = i;
+         }
+@@ -14125,6 +14139,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+         ggml_vk_synchronize(ctx);
+     }
+ 
++    if (ctx->compute_failed) {
++        return GGML_STATUS_FAILED;
++    }
+     return GGML_STATUS_SUCCESS;
+ 
+     UNUSED(backend);
+-- 
+2.47.2
+
