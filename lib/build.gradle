@@ -1,0 +1,91 @@
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.voiceskip.whispercpp'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 33  // Android 13+ required for Vulkan 1.3
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+
+        ndk {
+            // Allow overriding ABIs via -PtargetAbi=arm64-v8a or -PtargetAbi=x86_64
+            if (project.hasProperty('targetAbi')) {
+                abiFilters project.property('targetAbi')
+            } else {
+                abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64'
+            }
+
+            // Ensure libraries are built for 16 KB page size
+            debugSymbolLevel 'FULL'
+        }
+        externalNativeBuild {
+            cmake {
+                // Add arguments for 16 KB page size support
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+
+                // When set, builds whisper.android against the version located
+                // at GGML_HOME instead of the copy bundled with whisper.cpp.
+                if (
+                    project.hasProperty('GGML_HOME') &&
+                    project.findProperty('GGML_CLBLAST') == 'ON'
+                ) {
+                    // Turning on CLBlast requires GGML_HOME
+                    arguments "-DGGML_HOME=${project.property('GGML_HOME')}",
+                         "-DGGML_CLBLAST=ON",
+                         "-DOPENCL_LIB=${project.property('OPENCL_LIB')}",
+                         "-DCLBLAST_HOME=${project.property('CLBLAST_HOME')}",
+                         "-DOPENCL_ROOT=${project.property('OPENCL_ROOT')}",
+                         "-DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH",
+                         "-DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=BOTH"
+                } else if (project.hasProperty('GGML_HOME')) {
+                    arguments "-DGGML_HOME=${project.property('GGML_HOME')}"
+                }
+
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            consumerProguardFiles 'consumer-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    ndkVersion "28.1.13356709"  // NDK r28b for Vulkan 1.3 support and 16 KB page size
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/jni/CMakeLists.txt")
+            version "3.22.1"
+        }
+    }
+
+    // Packaging options for proper alignment
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+}
