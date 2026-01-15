@@ -1,0 +1,12 @@
+0.9.0
+=====
+
+V2144:
+ - CPU: Octa-core (1x3.05 GHz Cortex-X2 & 3x2.85 GHz Cortex-A710 & 4x1.80 GHz Cortex-A510)
+ - GPU: Mali-G710 MC10 | Vulkan 1.1
+01-20 20:48:03.138  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU background | load=1621ms | transcribe=217086ms | RTF=0.79x
+01-20 20:51:04.480  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU background | load=2705ms | transcribe=178497ms | RTF=0.65x
+01-20 20:53:29.423  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO background | load=4326ms | transcribe=140283ms | RTF=0.51x
+01-20 20:55:52.416  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU foreground | load=1492ms | transcribe=140599ms | RTF=0.51x
+01-20 20:58:45.450  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU foreground | load=2985ms | transcribe=169924ms | RTF=0.62x
+01-20 21:00:21.448  7891  7906 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO foreground | load=5064ms | transcribe=90571ms | RTF=0.33x
