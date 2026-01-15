@@ -180,7 +180,7 @@ class TranscriptionService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Recording & Transcribing")
             .setContentText(duration)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(createContentIntent())
             .addAction(createCancelAction())
@@ -191,7 +191,7 @@ class TranscriptionService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Finishing Transcription")
             .setContentText("$progress% complete")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(createContentIntent())
             .addAction(createCancelAction())
@@ -213,7 +213,7 @@ class TranscriptionService : Service() {
             .setContentTitle(getString(R.string.state_transcribing))
             .setContentText("$progress%")
             .setProgress(100, progress, false)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setContentIntent(createContentIntent())
             .addAction(createCancelAction())
@@ -245,7 +245,7 @@ class TranscriptionService : Service() {
 
     private fun createCompletionNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.notification_complete_title))
             .setContentText(getString(R.string.notification_complete_text))
             .setContentIntent(createCompletionContentIntent())
@@ -255,7 +255,7 @@ class TranscriptionService : Service() {
 
     private fun createErrorNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(getString(R.string.notification_error_title))
             .setContentText(getString(R.string.notification_error_text))
             .setContentIntent(createContentIntent())
