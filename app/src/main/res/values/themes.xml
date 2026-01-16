@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.VoiceSkip" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.VoiceSkip" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Hide splash screen icon completely -->
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <!-- Prevent any icon animation -->
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+    </style>
 </resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VoiceSkip" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Use system background color - works for any device/theme -->
+        <item name="android:windowSplashScreenBackground">?android:colorBackground</item>
+        <!-- Use transparent drawable to hide icon completely -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <!-- Reduce splash screen animation duration to minimum -->
+        <item name="android:windowSplashScreenAnimationDuration">1</item>
+    </style>
+</resources>
