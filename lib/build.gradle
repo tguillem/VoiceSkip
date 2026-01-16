@@ -29,6 +29,11 @@ android {
                 // Add arguments for 16 KB page size support
                 arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
 
+                // Enable Vulkan validation layers when -Pvkvalidate=true
+                if (project.hasProperty('vkvalidate') && project.property('vkvalidate') == 'true') {
+                    arguments "-DGGML_VULKAN_VALIDATE=ON"
+                }
+
                 // When set, builds whisper.android against the version located
                 // at GGML_HOME instead of the copy bundled with whisper.cpp.
                 if (

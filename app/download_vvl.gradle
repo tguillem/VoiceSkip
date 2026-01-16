@@ -1,0 +1,57 @@
+// Download Vulkan Validation Layers for debugging
+// Only downloads when -Pvkvalidate=true is specified
+
+ext.vvl_version = '1.3.296.0'
+
+def vvlEnabled = project.hasProperty('vkvalidate') && project.property('vkvalidate') == 'true'
+
+if (vvlEnabled) {
+    def vvlDir = file("${projectDir}/vvl")
+    def vvlZip = file("${vvlDir}/android-binaries-${vvl_version}.zip")
+    def jniLibsDir = file("${projectDir}/src/main/jniLibs")
+
+    task downloadVvl {
+        description 'Download Vulkan Validation Layers'
+        outputs.file(vvlZip)
+
+        doLast {
+            if (!vvlZip.exists()) {
+                vvlDir.mkdirs()
+                def url = "https://github.com/KhronosGroup/Vulkan-ValidationLayers/releases/download/vulkan-sdk-${vvl_version}/android-binaries-${vvl_version}.zip"
+                println "Downloading Vulkan Validation Layers from ${url}"
+                ant.get(src: url, dest: vvlZip)
+            }
+        }
+    }
+
+    task copyVvlLibs {
+        description 'Copy Vulkan Validation Layers to jniLibs'
+        dependsOn downloadVvl
+        inputs.file(vvlZip)
+
+        doLast {
+            def abis = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+            abis.each { abi ->
+                def dstFile = file("${jniLibsDir}/${abi}/libVkLayer_khronos_validation.so")
+                if (!dstFile.exists()) {
+                    copy {
+                        from(zipTree(vvlZip)) {
+                            include "android-binaries-${vvl_version}/${abi}/libVkLayer_khronos_validation.so"
+                            eachFile { fcp ->
+                                fcp.relativePath = new RelativePath(!fcp.file.isDirectory(), fcp.relativePath.segments.drop(2) as String[])
+                            }
+                            includeEmptyDirs = false
+                        }
+                        into "${jniLibsDir}/${abi}"
+                    }
+                    println "Copied VVL to ${dstFile}"
+                }
+            }
+        }
+    }
+
+    // Hook into preBuild
+    afterEvaluate {
+        preBuild.dependsOn copyVvlLibs
+    }
+}

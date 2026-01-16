@@ -1,1 +1,5 @@
 /build
+
+# Vulkan Validation Layers (downloaded via -Pvkvalidate=true)
+/vvl/
+/src/main/jniLibs/
