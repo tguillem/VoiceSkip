@@ -1,3 +1,7 @@
+1.0.1
+-----
+Reduce ggml Vulkan queue priority to make the UI more responsive.
+
 1.0.0
 -----
 First release.
