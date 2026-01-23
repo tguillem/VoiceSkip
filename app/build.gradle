@@ -49,6 +49,13 @@ android {
             ndk {
                 debugSymbolLevel 'SYMBOL_TABLE'
             }
+
+            // Exclude Vulkan validation layers from release builds
+            packaging {
+                jniLibs {
+                    excludes += '**/libVkLayer_khronos_validation.so'
+                }
+            }
         }
     }
 
