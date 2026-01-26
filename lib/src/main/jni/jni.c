@@ -383,6 +383,21 @@ asset_close(void *ctx)
     AAsset_close((AAsset *) ctx);
 }
 
+static bool
+is_gpu_blocklisted(const char *desc)
+{
+    size_t len = strlen(desc);
+
+    /* Adreno 6xx-7xx series (tested until 730) cause VK_ERROR_DEVICE_LOST or
+     * fail to link some  shaders */
+    if (strncmp(desc, "Adreno", 6) == 0)
+    {
+        return true;
+    }
+
+    return false;
+}
+
 static void
 load_model(struct whisper_jni_context *ctx, JNIEnv *env,
            struct model_load_args *args, size_t slot_idx)
@@ -492,10 +507,16 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
             int vk_device_count = ggml_backend_vk_get_device_count();
             if (use_gpu && vk_device_count > 0)
             {
-                ggml_backend_vk_get_device_description(0, desc,
-                                                       sizeof(desc));
-                gpu_desc = (*env)->NewStringUTF(env, desc);
-                ctx->use_gpu = true;
+                ggml_backend_vk_get_device_description(0, desc, sizeof(desc));
+                if (!is_gpu_blocklisted(desc))
+                {
+                    gpu_desc = (*env)->NewStringUTF(env, desc);
+                    ctx->use_gpu = true;
+                }
+                else
+                {
+                    LOGI("GPU blocklisted: %s", desc);
+                }
             }
         }
     }
