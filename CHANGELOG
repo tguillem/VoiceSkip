@@ -1,6 +1,11 @@
+1.0.2
+-----
+- Resolves Android Vitals warnings about deprecated edge-to-edge APIs
+- add v8fp16_dotprod for arm64 (faster CPU processing on modern devices)
+
 1.0.1
 -----
-Reduce ggml Vulkan queue priority to make the UI more responsive.
+- Reduce ggml Vulkan queue priority to make the UI more responsive.
 
 1.0.0
 -----

@@ -1,3 +1,17 @@
+1.0.2
+=====
+V2144:
+ - CPU: Octa-core (1x3.05 GHz Cortex-X2 & 3x2.85 GHz Cortex-A710 & 4x1.80 GHz Cortex-A510)
+ - GPU: Mali-G710 MC10 | Vulkan 1.1
+ - libwhisper_v8fp16_dotprod.so
+
+01-25 09:39:22.487 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU background | load=1672ms | transcribe=125906ms | RTF=0.46x
+01-25 09:42:19.669 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU background | load=2621ms | transcribe=174453ms | RTF=0.64x
+01-25 09:43:47.232 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO background | load=4362ms | transcribe=82906ms | RTF=0.30x
+01-25 09:45:21.617 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU foreground | load=1420ms | transcribe=92019ms | RTF=0.34x
+01-25 09:48:10.408 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU foreground | load=3000ms | transcribe=165680ms | RTF=0.61x
+01-25 09:49:35.847 20636 20653 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO foreground | load=4761ms | transcribe=80346ms | RTF=0.29x
+
 1.0.1
 =====
 
