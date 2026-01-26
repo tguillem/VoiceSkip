@@ -97,12 +97,11 @@ function(build_library target_name)
     )
     target_compile_definitions(${target_name} PRIVATE WHISPER_VERSION="${WHISPER_VERSION}")
 
-    if (${target_name} STREQUAL "whisper_v8fp16_va")
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16)
-        set(GGML_COMPILE_OPTIONS                      -march=armv8.2-a+fp16)
+    if (${target_name} STREQUAL "whisper_v8fp16_dotprod")
+        set(GGML_CPU_ARM_ARCH "armv8.2-a+fp16+dotprod" CACHE STRING "" FORCE)
+        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
     elseif (${target_name} STREQUAL "whisper_vfpv4")
         target_compile_options(${target_name} PRIVATE -mfpu=neon-vfpv4)
-        set(GGML_COMPILE_OPTIONS                      -mfpu=neon-vfpv4)
     endif ()
 
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
@@ -130,7 +129,6 @@ function(build_library target_name)
     set(GGML_VULKAN_MIN_1_1 ON CACHE BOOL "" FORCE)
 
     FetchContent_MakeAvailable(ggml)
-    target_compile_options(ggml PRIVATE ${GGML_COMPILE_OPTIONS})
 
     # Apply 16 KB page size to GGML library as well
     if(TARGET ggml)
@@ -143,7 +141,7 @@ function(build_library target_name)
 endfunction()
 
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    build_library("whisper_v8fp16_va")
+    build_library("whisper_v8fp16_dotprod")
 elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
     build_library("whisper_vfpv4")
 endif ()

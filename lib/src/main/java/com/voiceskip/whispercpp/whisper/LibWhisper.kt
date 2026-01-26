@@ -253,12 +253,12 @@ class WhisperContext private constructor(
 
             if (isArmEabiV8a()) {
                 try {
-                    Log.d(LOG_TAG, "Trying to load libwhisper_v8fp16_va.so")
-                    System.loadLibrary("whisper_v8fp16_va")
+                    Log.d(LOG_TAG, "Trying to load libwhisper_v8fp16_dotprod.so")
+                    System.loadLibrary("whisper_v8fp16_dotprod")
                     libraryLoaded = true
-                    Log.d(LOG_TAG, "Successfully loaded libwhisper_v8fp16_va.so")
+                    Log.d(LOG_TAG, "Successfully loaded libwhisper_v8fp16_dotprod.so")
                 } catch (e: Throwable) {
-                    Log.w(LOG_TAG, "Failed to load whisper_v8fp16_va: ${e.message}")
+                    Log.w(LOG_TAG, "Failed to load whisper_v8fp16_dotprod: ${e.message}")
                 }
             }
 
