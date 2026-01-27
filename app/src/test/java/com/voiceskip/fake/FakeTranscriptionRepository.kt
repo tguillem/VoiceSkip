@@ -122,14 +122,16 @@ class FakeTranscriptionRepository : TranscriptionRepository {
         segments: List<WhisperSegment>,
         detectedLanguage: String?,
         audioLengthMs: Int,
-        processingTimeMs: Long
+        processingTimeMs: Long,
+        audioUri: Uri?
     ) {
         _state.value = TranscriptionState.Complete(
             text = text,
             segments = segments,
             detectedLanguage = detectedLanguage,
             audioLengthMs = audioLengthMs,
-            processingTimeMs = processingTimeMs
+            processingTimeMs = processingTimeMs,
+            audioUri = audioUri
         )
         _segments.value = segments
     }

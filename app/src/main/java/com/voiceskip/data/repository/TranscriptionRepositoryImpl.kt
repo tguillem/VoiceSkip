@@ -220,7 +220,8 @@ class TranscriptionRepositoryImpl @Inject constructor(
                                 segments = progress.segments,
                                 detectedLanguage = progress.detectedLanguage,
                                 audioLengthMs = progress.audioLengthMs,
-                                processingTimeMs = progress.processingTimeMs
+                                processingTimeMs = progress.processingTimeMs,
+                                audioUri = uri
                             )
                         }
                         is FileTranscriptionUseCase.Progress.Failed -> {
@@ -261,14 +262,16 @@ class TranscriptionRepositoryImpl @Inject constructor(
         segments: List<WhisperSegment>,
         detectedLanguage: String?,
         audioLengthMs: Int,
-        processingTimeMs: Long
+        processingTimeMs: Long,
+        audioUri: Uri?
     ) {
         _state.value = TranscriptionState.Complete(
             text = text,
             segments = segments,
             detectedLanguage = detectedLanguage,
             audioLengthMs = audioLengthMs,
-            processingTimeMs = processingTimeMs
+            processingTimeMs = processingTimeMs,
+            audioUri = audioUri
         )
     }
 

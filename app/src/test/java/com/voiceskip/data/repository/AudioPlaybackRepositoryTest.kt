@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package com.voiceskip.ui.main
+package com.voiceskip.data.repository
 
 import android.media.MediaPlayer
+import android.net.Uri
 import com.google.common.truth.Truth.assertThat
 import com.voiceskip.TestDispatcherRule
 import io.mockk.Runs
@@ -16,16 +17,19 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class AudioPlaybackManagerTest {
+class AudioPlaybackRepositoryTest {
 
     @get:Rule
     val dispatcherRule = TestDispatcherRule()
 
-    private lateinit var manager: AudioPlaybackManager
+    private lateinit var repository: AudioPlaybackRepositoryImpl
     private lateinit var mockMediaPlayer: MediaPlayer
+    private lateinit var mockMediaPlayerFactory: MediaPlayerFactory
+    private lateinit var mockContext: android.content.Context
+    private lateinit var mockContentResolver: android.content.ContentResolver
+    private lateinit var mockUri: Uri
     private var capturedCompletionListener: MediaPlayer.OnCompletionListener? = null
     private var capturedErrorListener: MediaPlayer.OnErrorListener? = null
 
@@ -35,13 +39,15 @@ class AudioPlaybackManagerTest {
         val errorListenerSlot = slot<MediaPlayer.OnErrorListener>()
 
         mockMediaPlayer = mockk(relaxed = true) {
-            every { setDataSource(any<String>()) } just Runs
+            every { setDataSource(any<android.content.Context>(), any<Uri>()) } just Runs
             every { prepare() } just Runs
             every { start() } just Runs
             every { stop() } just Runs
             every { reset() } just Runs
             every { release() } just Runs
             every { isPlaying } returns true
+            every { duration } returns 60000
+            every { currentPosition } returns 0
             every { setOnCompletionListener(capture(completionListenerSlot)) } answers {
                 capturedCompletionListener = completionListenerSlot.captured
             }
@@ -50,8 +56,21 @@ class AudioPlaybackManagerTest {
             }
         }
 
-        manager = AudioPlaybackManager(
-            mediaPlayerFactory = { mockMediaPlayer }
+        mockMediaPlayerFactory = mockk {
+            every { create() } returns mockMediaPlayer
+        }
+
+        mockContentResolver = mockk(relaxed = true)
+        mockContext = mockk(relaxed = true) {
+            every { contentResolver } returns mockContentResolver
+        }
+
+        mockUri = mockk(relaxed = true)
+
+        repository = AudioPlaybackRepositoryImpl(
+            context = mockContext,
+            mediaPlayerFactory = mockMediaPlayerFactory,
+            mainDispatcher = dispatcherRule.testDispatcher
         )
     }
 
@@ -60,42 +79,42 @@ class AudioPlaybackManagerTest {
     // =========================================================================
 
     @Test
-    fun `releaseMediaPlayer does not stop non-playing player`() = runTest {
+    fun `cleanup does not stop non-playing player`() = runTest {
         every { mockMediaPlayer.isPlaying } returns false
-        manager.startPlayback(File("/path/to/audio.mp3"))
+        repository.preparePlayback(mockUri)
 
-        manager.releaseMediaPlayer()
+        repository.cleanup()
 
         verify(exactly = 0) { mockMediaPlayer.stop() }
     }
 
     @Test
-    fun `releaseMediaPlayer handles stop exception`() = runTest {
+    fun `cleanup handles stop exception`() = runTest {
         every { mockMediaPlayer.stop() } throws IllegalStateException("Already stopped")
-        manager.startPlayback(File("/path/to/audio.mp3"))
+        repository.preparePlayback(mockUri)
 
-        manager.releaseMediaPlayer()
+        repository.cleanup()
 
         verify { mockMediaPlayer.reset() }
         verify { mockMediaPlayer.release() }
     }
 
     @Test
-    fun `releaseMediaPlayer handles reset exception`() = runTest {
+    fun `cleanup handles reset exception`() = runTest {
         every { mockMediaPlayer.reset() } throws IllegalStateException("Cannot reset")
-        manager.startPlayback(File("/path/to/audio.mp3"))
+        repository.preparePlayback(mockUri)
 
-        manager.releaseMediaPlayer()
+        repository.cleanup()
 
         verify { mockMediaPlayer.release() }
     }
 
     @Test
-    fun `releaseMediaPlayer handles release exception`() = runTest {
+    fun `cleanup handles release exception`() = runTest {
         every { mockMediaPlayer.release() } throws IllegalStateException("Cannot release")
-        manager.startPlayback(File("/path/to/audio.mp3"))
+        repository.preparePlayback(mockUri)
 
-        manager.releaseMediaPlayer()
+        repository.cleanup()
     }
 
     // =========================================================================
@@ -103,13 +122,13 @@ class AudioPlaybackManagerTest {
     // =========================================================================
 
     @Test
-    fun `startPlayback throws on setDataSource error`() = runTest {
-        every { mockMediaPlayer.setDataSource(any<String>()) } throws
+    fun `preparePlayback throws on setDataSource error`() = runTest {
+        every { mockMediaPlayer.setDataSource(any<android.content.Context>(), any<Uri>()) } throws
             java.io.IOException("File not found")
 
         var thrownException: Throwable? = null
         try {
-            manager.startPlayback(File("/nonexistent/audio.mp3"))
+            repository.preparePlayback(mockUri)
         } catch (e: Throwable) {
             thrownException = e
         }
@@ -118,13 +137,13 @@ class AudioPlaybackManagerTest {
     }
 
     @Test
-    fun `startPlayback throws on prepare error`() = runTest {
+    fun `preparePlayback throws on prepare error`() = runTest {
         every { mockMediaPlayer.prepare() } throws
             java.io.IOException("Cannot prepare")
 
         var thrownException: Throwable? = null
         try {
-            manager.startPlayback(File("/path/to/audio.mp3"))
+            repository.preparePlayback(mockUri)
         } catch (e: Throwable) {
             thrownException = e
         }

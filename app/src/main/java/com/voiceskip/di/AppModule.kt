@@ -21,7 +21,6 @@ import com.voiceskip.data.source.WhisperDataSourceImpl
 import com.voiceskip.domain.ModelManager
 import com.voiceskip.service.ServiceLauncher
 import com.voiceskip.service.ServiceLauncherImpl
-import com.voiceskip.ui.main.AudioPlaybackManager
 import com.voiceskip.ui.main.FileManager
 import com.voiceskip.util.AppLifecycleTracker
 import com.voiceskip.util.AppLifecycleTrackerImpl
@@ -55,12 +54,6 @@ object AppModule {
             modelsPath = File(application.filesDir, "models"),
             samplesPath = File(application.filesDir, "samples")
         )
-    }
-
-    @Provides
-    @Singleton
-    fun provideAudioPlaybackManager(): AudioPlaybackManager {
-        return AudioPlaybackManager()
     }
 
     @Provides

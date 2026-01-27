@@ -30,7 +30,8 @@ class SavedTranscriptionRepositoryImpl(
             durationMs = state.processingTimeMs,
             audioLengthMs = state.audioLengthMs,
             detectedLanguage = state.detectedLanguage ?: "unknown",
-            segments = state.segments.map { it.toSavedSegment() }
+            segments = state.segments.map { it.toSavedSegment() },
+            audioUri = state.audioUri?.toString()
         )
         dataSource.save(saved)
         _savedTranscription.value = saved

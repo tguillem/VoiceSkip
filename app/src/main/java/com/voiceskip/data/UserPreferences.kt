@@ -23,7 +23,7 @@ class UserPreferences(private val context: Context) {
         context.getSharedPreferences("gpu_crash_detection", Context.MODE_PRIVATE)
 
     companion object {
-        private val SHOW_TIMESTAMPS_KEY = booleanPreferencesKey("show_timestamps")
+        private val LISTEN_MODE_KEY = booleanPreferencesKey("listen_mode_enabled")
         private val TRANSLATE_KEY = booleanPreferencesKey("translate_to_english")
         private val MODEL_KEY = stringPreferencesKey("model")
         private val NUM_THREADS_KEY = intPreferencesKey("num_threads")
@@ -168,8 +168,8 @@ class UserPreferences(private val context: Context) {
 
     fun getDefaultNumThreadsForContext(gpuEnabled: Boolean = true): Int = getDefaultNumThreads(gpuEnabled)
 
-    val showTimestamps: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[SHOW_TIMESTAMPS_KEY] ?: false
+    val listenModeEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[LISTEN_MODE_KEY] ?: false
     }
 
     val translateToEnglish: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -201,9 +201,9 @@ class UserPreferences(private val context: Context) {
         preferences[DEFAULT_LANGUAGE_KEY] ?: LANGUAGE_AUTO
     }
 
-    suspend fun setShowTimestamps(show: Boolean) {
+    suspend fun setListenModeEnabled(enabled: Boolean) {
         context.dataStore.edit { preferences ->
-            preferences[SHOW_TIMESTAMPS_KEY] = show
+            preferences[LISTEN_MODE_KEY] = enabled
         }
     }
 

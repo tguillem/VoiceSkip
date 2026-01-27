@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.voiceskip.data.ErrorHandler
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.PlaybackState
 import com.voiceskip.data.repository.SavedTranscription
 import com.voiceskip.data.repository.SavedTranscriptionRepository
 import com.voiceskip.data.repository.SettingsRepository
@@ -18,6 +19,7 @@ import com.voiceskip.data.repository.TranscriptionSource
 import com.voiceskip.data.repository.TranscriptionState
 import com.voiceskip.data.repository.toWhisperSegment
 import com.voiceskip.domain.ModelManager
+import com.voiceskip.domain.usecase.AudioListenUseCase
 import com.voiceskip.domain.usecase.FormatSentencesUseCase
 import com.voiceskip.domain.usecase.LiveTranscriptionUseCase
 import com.voiceskip.service.ServiceLauncher
@@ -115,7 +117,6 @@ data class MainScreenUiState(
     val selectedAudioPath: String? = null,
     val showFileSelector: Boolean = false,
     val language: String = UserPreferences.LANGUAGE_AUTO,
-    val showTimestamps: Boolean = false,
     val translateToEnglish: Boolean = false,
     val model: String = "models/ggml-small-q8_0.bin",
     val gpuEnabled: Boolean = true,
@@ -123,7 +124,12 @@ data class MainScreenUiState(
     val gpuFallbackReason: ModelManager.GpuFallbackReason? = null,
     val turboFallbackReason: ModelManager.TurboFallbackReason? = null,
     val queueLimitStopReason: LiveTranscriptionUseCase.StopReason? = null,
-    val transcriptionFailureReason: TranscriptionFailureReason? = null
+    val transcriptionFailureReason: TranscriptionFailureReason? = null,
+    val listenModeEnabled: Boolean = false,
+    val listenModeAvailable: Boolean = false,
+    val audioUri: Uri? = null,
+    val audioFileName: String? = null,
+    val playbackState: PlaybackState = PlaybackState()
 )
 
 sealed class MainScreenAction {
@@ -137,9 +143,12 @@ sealed class MainScreenAction {
     object DeleteSavedTranscription : MainScreenAction()
     object UndoDeleteSavedTranscription : MainScreenAction()
     object ConfirmDeleteSavedTranscription : MainScreenAction()
-    data class SetShowTimestamps(val show: Boolean) : MainScreenAction()
     data class SetTranslateToEnglish(val translate: Boolean) : MainScreenAction()
     data class ChangeLanguage(val language: String) : MainScreenAction()
+    data class ToggleListenMode(val enabled: Boolean) : MainScreenAction()
+    object PlayPause : MainScreenAction()
+    data class SeekTo(val positionMs: Long) : MainScreenAction()
+    data class SeekToSegment(val segment: WhisperSegment) : MainScreenAction()
 }
 
 @HiltViewModel
@@ -148,7 +157,7 @@ class MainScreenViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val savedTranscriptionRepository: SavedTranscriptionRepository,
     private val modelManager: ModelManager,
-    private val audioManager: AudioPlaybackManager,
+    private val audioListenUseCase: AudioListenUseCase,
     private val serviceLauncher: ServiceLauncher,
     private val assetManager: AssetManager,
     private val startupConfig: StartupConfig,
@@ -172,30 +181,47 @@ class MainScreenViewModel @Inject constructor(
         settingsRepository.userSettings,
         repository.sessionLanguage,
         _showFileSelector,
-        combine(modelManager.turboFallbackReason, _transcriptionFailureReason) { turbo, failure -> turbo to failure }
-    ) { combined, settings, sessionLanguage, showFileSelector, turboAndFailure ->
+        combine(modelManager.turboFallbackReason, _transcriptionFailureReason, audioListenUseCase.playbackState) { turbo, failure, playback -> Triple(turbo, failure, playback) }
+    ) { combined, settings, sessionLanguage, showFileSelector, turboFailurePlayback ->
         val repoState = combined.repoState
         val modelState = combined.modelState
         val gpuFallbackReason = combined.gpuFallbackReason
         val savedTranscription = combined.savedTx
         val pendingDelete = combined.pendingDel
-        val (turboFallbackReason, transcriptionFailureReason) = turboAndFailure
+        val (turboFallbackReason, transcriptionFailureReason, playbackState) = turboFailurePlayback
 
         val canTranscribe = modelState is ModelManager.ModelState.Loaded && repoState is TranscriptionState.Idle
+
+        val currentAudioUri = when (repoState) {
+            is TranscriptionState.Transcribing -> repository.getCurrentTranscriptionSource()?.let { source ->
+                (source as? TranscriptionSource.FileUri)?.uri
+            }
+            is TranscriptionState.Complete -> repoState.audioUri
+            else -> null
+        }
+
+        val listenModeAvailable = currentAudioUri != null
+
+        val audioFileName = currentAudioUri?.let { audioListenUseCase.getFileNameFromUri(it) }
+
         val baseState = MainScreenUiState(
             canTranscribe = canTranscribe,
             hasSavedTranscription = savedTranscription != null,
             pendingDelete = pendingDelete,
             showFileSelector = showFileSelector,
             language = sessionLanguage ?: UserPreferences.LANGUAGE_AUTO,
-            showTimestamps = settings.showTimestamps,
             translateToEnglish = settings.translateToEnglish,
             model = settings.model,
             gpuEnabled = settings.gpuEnabled,
             numThreads = settings.numThreads,
             gpuFallbackReason = gpuFallbackReason,
             turboFallbackReason = turboFallbackReason,
-            transcriptionFailureReason = transcriptionFailureReason
+            transcriptionFailureReason = transcriptionFailureReason,
+            listenModeEnabled = settings.listenModeEnabled,
+            listenModeAvailable = listenModeAvailable,
+            audioUri = currentAudioUri,
+            audioFileName = audioFileName,
+            playbackState = playbackState
         )
 
         when (repoState) {
@@ -208,7 +234,8 @@ class MainScreenViewModel @Inject constructor(
                 }
                 baseState.copy(
                     screenState = screenState,
-                    errorMessage = (screenState as? TranscriptionUiState.Error)?.message
+                    errorMessage = (screenState as? TranscriptionUiState.Error)?.message,
+                    listenModeAvailable = false
                 )
             }
             is TranscriptionState.LiveRecording -> baseState.copy(
@@ -218,14 +245,16 @@ class MainScreenViewModel @Inject constructor(
                 transcriptionProgress = repoState.progress,
                 recordingDurationMs = repoState.durationMs,
                 recordingAmplitude = repoState.amplitude,
-                detectedLanguage = repoState.detectedLanguage
+                detectedLanguage = repoState.detectedLanguage,
+                listenModeAvailable = false
             )
             is TranscriptionState.FinishingTranscription -> baseState.copy(
                 screenState = TranscriptionUiState.FinishingTranscription,
                 transcriptionSegments = repoState.segments,
                 transcriptionProgress = repoState.progress,
                 detectedLanguage = repoState.detectedLanguage,
-                queueLimitStopReason = repoState.stopReason
+                queueLimitStopReason = repoState.stopReason,
+                listenModeAvailable = false
             )
             is TranscriptionState.Transcribing -> baseState.copy(
                 screenState = TranscriptionUiState.Transcribing,
@@ -248,7 +277,8 @@ class MainScreenViewModel @Inject constructor(
             )
             is TranscriptionState.Error -> baseState.copy(
                 screenState = TranscriptionUiState.Error(repoState.message),
-                errorMessage = repoState.message
+                errorMessage = repoState.message,
+                listenModeAvailable = false
             )
         }
     }.stateIn(
@@ -320,6 +350,7 @@ class MainScreenViewModel @Inject constructor(
             is TranscriptionSource.FileUri -> {
                 val defaultLang = language ?: settingsRepository.userSettings.first().defaultLanguage
                 serviceLauncher.startFileTranscription(source.uri, language = defaultLang)
+                audioListenUseCase.prepareIfListenModeEnabled(source.uri, uiState.value.listenModeEnabled)
             }
         }
     }
@@ -383,6 +414,7 @@ class MainScreenViewModel @Inject constructor(
             VoiceSkipLogger.logFileSelected(uri.toString())
             val effectiveLanguage = language ?: settingsRepository.userSettings.first().defaultLanguage
             serviceLauncher.startFileTranscription(uri, language = effectiveLanguage)
+            audioListenUseCase.prepareIfListenModeEnabled(uri, uiState.value.listenModeEnabled)
         }
     }
 
@@ -398,28 +430,38 @@ class MainScreenViewModel @Inject constructor(
             is MainScreenAction.DeleteSavedTranscription -> deleteSavedTranscription()
             is MainScreenAction.UndoDeleteSavedTranscription -> undoDeleteSavedTranscription()
             is MainScreenAction.ConfirmDeleteSavedTranscription -> confirmDeleteSavedTranscription()
-            is MainScreenAction.SetShowTimestamps -> setShowTimestamps(action.show)
             is MainScreenAction.SetTranslateToEnglish -> setTranslateToEnglish(action.translate)
             is MainScreenAction.ChangeLanguage -> changeLanguage(action.language)
+            is MainScreenAction.ToggleListenMode -> toggleListenMode(action.enabled)
+            is MainScreenAction.PlayPause -> togglePlayPause()
+            is MainScreenAction.SeekTo -> seekTo(action.positionMs)
+            is MainScreenAction.SeekToSegment -> seekToSegment(action.segment)
         }
     }
 
     private fun viewLastTranscription() {
         viewModelScope.launch {
             val saved = savedTranscriptionRepository.savedTranscription.value ?: return@launch
+            val audioUri = saved.audioUri?.let { Uri.parse(it) }
             repository.restoreCompletedState(
                 text = saved.text,
                 segments = saved.segments.map { it.toWhisperSegment() },
                 detectedLanguage = saved.detectedLanguage,
                 audioLengthMs = saved.audioLengthMs,
-                processingTimeMs = saved.durationMs
+                processingTimeMs = saved.durationMs,
+                audioUri = audioUri
             )
+
+            if (audioUri != null) {
+                audioListenUseCase.prepareIfListenModeEnabled(audioUri, uiState.value.listenModeEnabled)
+            }
         }
     }
 
     private fun deleteSavedTranscription() {
         viewModelScope.launch {
             val current = savedTranscriptionRepository.savedTranscription.value ?: return@launch
+            audioListenUseCase.stopPlayback()
             _pendingDelete.value = current
             savedTranscriptionRepository.clearSavedTranscription()
             repository.clearState()
@@ -461,7 +503,7 @@ class MainScreenViewModel @Inject constructor(
             }
             TranscriptionState.Idle -> {
                 runCatching {
-                    audioManager.stopPlayback()
+                    audioListenUseCase.stopPlayback()
                     val defaultLang = settingsRepository.userSettings.first().defaultLanguage
                     serviceLauncher.startRecording(language = defaultLang)
                     VoiceSkipLogger.logRecordingStart()
@@ -485,6 +527,9 @@ class MainScreenViewModel @Inject constructor(
     }
 
     fun handleSelectedFile(uri: Uri) {
+        // Take persistable permission so we can access the file later for playback
+        audioListenUseCase.takePersistablePermission(uri)
+
         if (!uiState.value.canTranscribe) {
             savedStateHandle["pending_uri"] = uri
             return
@@ -495,6 +540,7 @@ class MainScreenViewModel @Inject constructor(
             runCatching {
                 val defaultLang = settingsRepository.userSettings.first().defaultLanguage
                 serviceLauncher.startFileTranscription(uri, language = defaultLang)
+                audioListenUseCase.prepareIfListenModeEnabled(uri, uiState.value.listenModeEnabled)
             }.onFailure { exception ->
                 if (exception is CancellationException) throw exception
 
@@ -507,6 +553,7 @@ class MainScreenViewModel @Inject constructor(
     fun stopTranscription() {
         viewModelScope.launch {
             VoiceSkipLogger.i("Stop button pressed")
+            audioListenUseCase.stopPlayback()
 
             runCatching {
                 repository.cancelTranscription()
@@ -521,6 +568,7 @@ class MainScreenViewModel @Inject constructor(
 
     fun clearResult() {
         viewModelScope.launch {
+            audioListenUseCase.stopPlayback()
             repository.clearState()
         }
     }
@@ -528,14 +576,6 @@ class MainScreenViewModel @Inject constructor(
     fun retryLoadModel() {
         viewModelScope.launch {
             loadModel(forceReload = true)
-        }
-    }
-
-    fun setShowTimestamps(show: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.updateShowTimestamps(show).onFailure { exception ->
-                ErrorHandler.logError(LOG_TAG, exception, critical = false)
-            }
         }
     }
 
@@ -563,11 +603,28 @@ class MainScreenViewModel @Inject constructor(
         repository.updateLanguage(language)
     }
 
+    private fun toggleListenMode(enabled: Boolean) {
+        viewModelScope.launch {
+            audioListenUseCase.setListenModeEnabled(enabled, uiState.value.audioUri)
+        }
+    }
+
+    private fun togglePlayPause() {
+        audioListenUseCase.togglePlayPause()
+    }
+
+    private fun seekTo(positionMs: Long) {
+        audioListenUseCase.seekTo(positionMs)
+    }
+
+    private fun seekToSegment(segment: WhisperSegment) {
+        audioListenUseCase.seekToSegment(segment)
+    }
 
     fun formatSentences(text: String): String = formatSentencesUseCase(text)
 
     override fun onCleared() {
         super.onCleared()
-        audioManager.cleanup()
+        audioListenUseCase.cleanup()
     }
 }

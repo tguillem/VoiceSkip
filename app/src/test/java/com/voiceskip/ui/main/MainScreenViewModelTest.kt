@@ -10,7 +10,9 @@ import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
 import com.voiceskip.StartupConfig
 import com.voiceskip.TestDispatcherRule
+import com.voiceskip.data.repository.PlaybackState
 import com.voiceskip.data.repository.TranscriptionState
+import com.voiceskip.domain.usecase.AudioListenUseCase
 import com.voiceskip.fake.FakeSavedTranscriptionRepository
 import com.voiceskip.fake.FakeSettingsRepository
 import com.voiceskip.fake.FakeTranscriptionRepository
@@ -27,6 +29,7 @@ import com.voiceskip.data.UserPreferences
 import com.voiceskip.domain.ModelManager
 import com.voiceskip.domain.usecase.FormatSentencesUseCase
 import com.voiceskip.service.ServiceLauncher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +54,7 @@ class MainScreenViewModelTest {
     private lateinit var fakeSettingsRepository: FakeSettingsRepository
     private lateinit var fakeSavedTranscriptionRepository: FakeSavedTranscriptionRepository
     private lateinit var mockModelManager: ModelManager
-    private lateinit var mockAudioManager: AudioPlaybackManager
+    private lateinit var mockAudioListenUseCase: AudioListenUseCase
     private lateinit var mockServiceLauncher: ServiceLauncher
     private lateinit var mockAssetManager: AssetManager
     private lateinit var startupConfig: StartupConfig
@@ -61,6 +64,7 @@ class MainScreenViewModelTest {
     private val modelStateFlow = MutableStateFlow<ModelManager.ModelState>(ModelManager.ModelState.NotLoaded)
     private val gpuFallbackReasonFlow = MutableStateFlow<ModelManager.GpuFallbackReason?>(null)
     private val turboFallbackReasonFlow = MutableStateFlow<ModelManager.TurboFallbackReason?>(null)
+    private val playbackStateFlow = MutableStateFlow(PlaybackState())
 
     @Before
     fun setup() {
@@ -76,8 +80,9 @@ class MainScreenViewModelTest {
             coEvery { loadModel(any()) } returns Result.success(Unit)
         }
 
-        mockAudioManager = mockk(relaxed = true) {
+        mockAudioListenUseCase = mockk(relaxed = true) {
             coEvery { stopPlayback() } just Runs
+            every { playbackState } returns playbackStateFlow
         }
 
         mockServiceLauncher = mockk(relaxed = true) {
@@ -104,7 +109,7 @@ class MainScreenViewModelTest {
             settingsRepository = fakeSettingsRepository,
             savedTranscriptionRepository = fakeSavedTranscriptionRepository,
             modelManager = mockModelManager,
-            audioManager = mockAudioManager,
+            audioListenUseCase = mockAudioListenUseCase,
             serviceLauncher = mockServiceLauncher,
             assetManager = mockAssetManager,
             startupConfig = startupConfig,

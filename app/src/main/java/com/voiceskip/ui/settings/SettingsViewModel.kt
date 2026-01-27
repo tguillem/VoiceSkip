@@ -26,7 +26,6 @@ sealed class GpuStatus {
 }
 
 data class SettingsUiState(
-    val showTimestamps: Boolean = false,
     val translateToEnglish: Boolean = false,
     val model: String = "",
     val gpuEnabled: Boolean = true,
@@ -63,7 +62,6 @@ class SettingsViewModel @Inject constructor(
         modelManager.turboFallbackReason
     ) { settings, gpuStatus, gpuFallbackReason, turboFallbackReason ->
         SettingsUiState(
-            showTimestamps = settings.showTimestamps,
             translateToEnglish = settings.translateToEnglish,
             model = settings.model,
             gpuEnabled = settings.gpuEnabled,
@@ -89,14 +87,6 @@ class SettingsViewModel @Inject constructor(
 
     fun onTurboFallbackDismissed() {
         modelManager.clearTurboFallbackReason()
-    }
-
-    fun setShowTimestamps(show: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.updateShowTimestamps(show).onFailure { exception ->
-                ErrorHandler.logError(LOG_TAG, exception, critical = false)
-            }
-        }
     }
 
     fun setTranslateToEnglish(translate: Boolean) {
