@@ -11,7 +11,8 @@ data class SavedTranscription(
     val durationMs: Long,
     val audioLengthMs: Int,
     val detectedLanguage: String,
-    val segments: List<SavedSegment>
+    val segments: List<SavedSegment>,
+    val audioUri: String? = null
 )
 
 @Serializable

@@ -2,6 +2,7 @@
 
 package com.voiceskip.data.repository
 
+import android.net.Uri
 import com.voiceskip.domain.usecase.LiveTranscriptionUseCase
 import com.voiceskip.whispercpp.whisper.WhisperSegment
 
@@ -37,7 +38,8 @@ sealed interface TranscriptionState {
         val segments: List<WhisperSegment>,
         val detectedLanguage: String?,
         val audioLengthMs: Int,
-        val processingTimeMs: Long
+        val processingTimeMs: Long,
+        val audioUri: Uri? = null
     ) : TranscriptionState
 
     data class Error(

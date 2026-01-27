@@ -16,19 +16,19 @@ class SettingsRepositoryImpl(
 
     override val userSettings: Flow<UserSettings> = combine(
         combine(
-            userPreferences.showTimestamps,
+            userPreferences.listenModeEnabled,
             userPreferences.translateToEnglish,
             userPreferences.model,
             userPreferences.gpuEnabled,
             userPreferences.turboModeEnabled
-        ) { timestamps, translate, model, gpu, turbo ->
-            PartialSettings(timestamps, translate, model, gpu, turbo)
+        ) { listenMode, translate, model, gpu, turbo ->
+            PartialSettings(listenMode, translate, model, gpu, turbo)
         },
         userPreferences.numThreads,
         userPreferences.defaultLanguage
     ) { partial, threads, language ->
         UserSettings(
-            showTimestamps = partial.showTimestamps,
+            listenModeEnabled = partial.listenModeEnabled,
             translateToEnglish = partial.translateToEnglish,
             model = partial.model,
             gpuEnabled = partial.gpuEnabled,
@@ -39,15 +39,15 @@ class SettingsRepositoryImpl(
     }
 
     private data class PartialSettings(
-        val showTimestamps: Boolean,
+        val listenModeEnabled: Boolean,
         val translateToEnglish: Boolean,
         val model: String,
         val gpuEnabled: Boolean,
         val turboModeEnabled: Boolean
     )
 
-    override suspend fun updateShowTimestamps(show: Boolean): Result<Unit> = runCatching {
-        userPreferences.setShowTimestamps(show)
+    override suspend fun updateListenModeEnabled(enabled: Boolean): Result<Unit> = runCatching {
+        userPreferences.setListenModeEnabled(enabled)
     }
 
     override suspend fun updateTranslateToEnglish(translate: Boolean): Result<Unit> = runCatching {

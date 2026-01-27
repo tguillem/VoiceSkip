@@ -15,8 +15,9 @@
     <string name="desc_recording">Speak clearly into your microphone</string>
 
     <!-- States -->
+    <string name="state_live_transcription">Live transcription</string>
     <string name="state_loading">Loading model…</string>
-    <string name="state_transcribing">Transcribing…</string>
+    <string name="state_transcribing">Transcribing</string>
     <string name="state_recording">Recording…</string>
     <string name="state_finishing">Finishing…</string>
 
@@ -60,6 +61,14 @@
 
     <!-- Share -->
     <string name="share_transcription">Share transcription</string>
+
+    <string name="listen_mode">Listen</string>
+    <string name="listen_mode_active">Listening</string>
+    <string name="listen_play">Play</string>
+    <string name="listen_pause">Pause</string>
+    <string name="listen_previous_segment">Previous segment</string>
+    <string name="listen_next_segment">Next segment</string>
+    <string name="listen_seek_slider">Audio position</string>
 
     <!-- Settings -->
     <string name="settings_title">Settings</string>

@@ -30,7 +30,8 @@ interface TranscriptionRepository {
         segments: List<WhisperSegment>,
         detectedLanguage: String?,
         audioLengthMs: Int,
-        processingTimeMs: Long
+        processingTimeMs: Long,
+        audioUri: Uri? = null
     )
 
     suspend fun loadModel(assets: AssetManager, modelPath: String, vadModelPath: String?, useGpu: Boolean = true, forceReload: Boolean = false): Result<String?>

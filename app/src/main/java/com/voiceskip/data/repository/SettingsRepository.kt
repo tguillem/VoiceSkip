@@ -5,7 +5,7 @@ package com.voiceskip.data.repository
 import kotlinx.coroutines.flow.Flow
 
 data class UserSettings(
-    val showTimestamps: Boolean,
+    val listenModeEnabled: Boolean,
     val translateToEnglish: Boolean,
     val model: String,
     val gpuEnabled: Boolean,
@@ -20,7 +20,7 @@ interface SettingsRepository {
     fun getDefaultModel(): String
     fun getDefaultNumThreads(): Int
 
-    suspend fun updateShowTimestamps(show: Boolean): Result<Unit>
+    suspend fun updateListenModeEnabled(enabled: Boolean): Result<Unit>
     suspend fun updateTranslateToEnglish(translate: Boolean): Result<Unit>
     suspend fun updateModel(model: String): Result<Unit>
     suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit>

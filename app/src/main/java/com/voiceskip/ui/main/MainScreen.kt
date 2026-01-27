@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -46,9 +47,26 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.voiceskip.R
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.PlaybackState
 import com.voiceskip.domain.ModelManager
+import com.voiceskip.domain.usecase.AudioListenUseCase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * Find the current segment index based on playback position.
+ * Adds lookahead to match the seek offset used when clicking segments.
+ */
+private fun findCurrentSegmentIndex(
+    positionMs: Long,
+    segments: List<com.voiceskip.whispercpp.whisper.WhisperSegment>
+): Int {
+    if (segments.isEmpty()) return -1
+    val lookAheadMs = positionMs + AudioListenUseCase.SEGMENT_SEEK_OFFSET_MS
+    return segments.indexOfLast { lookAheadMs >= it.startMs && lookAheadMs < it.endMs }
+        .takeIf { it >= 0 }
+        ?: segments.indexOfLast { it.startMs <= lookAheadMs }
+}
 
 @Composable
 private fun ModelManager.GpuFallbackReason.toMessage(): String = when (this) {
@@ -170,7 +188,13 @@ private fun MainScreenContent(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = {
+                    val title = when (uiState.screenState) {
+                        is TranscriptionUiState.LiveRecording -> stringResource(R.string.state_live_transcription)
+                        else -> uiState.audioFileName ?: stringResource(R.string.app_name)
+                    }
+                    Text(title)
+                },
                 actions = {
                     if (uiState.screenState is TranscriptionUiState.Ready ||
                         uiState.screenState is TranscriptionUiState.Complete ||
@@ -215,7 +239,7 @@ private fun MainScreenContent(
                     durationMs = uiState.recordingDurationMs,
                     progress = uiState.transcriptionProgress,
                     segments = uiState.transcriptionSegments,
-                    showTimestamps = uiState.showTimestamps,
+                    showTimestamps = uiState.listenModeEnabled,
                     detectedLanguage = uiState.detectedLanguage,
                     currentLanguage = uiState.language,
                     onLanguageChange = { language ->
@@ -229,7 +253,6 @@ private fun MainScreenContent(
                     TranscribingScreen(
                         progress = uiState.transcriptionProgress,
                         segments = uiState.transcriptionSegments,
-                        showTimestamps = uiState.showTimestamps,
                         isComplete = false,
                         detectedLanguage = uiState.detectedLanguage,
                         currentLanguage = uiState.language,
@@ -239,7 +262,16 @@ private fun MainScreenContent(
                         onStop = {
                             onAction(MainScreenAction.StopTranscription)
                         },
-                        formatText = formatText
+                        formatText = formatText,
+                        listenModeEnabled = uiState.listenModeEnabled,
+                        listenModeAvailable = uiState.listenModeAvailable,
+                        onToggleListenMode = { enabled ->
+                            onAction(MainScreenAction.ToggleListenMode(enabled))
+                        },
+                        playbackState = uiState.playbackState,
+                        onPlayPause = { onAction(MainScreenAction.PlayPause) },
+                        onSeek = { positionMs -> onAction(MainScreenAction.SeekTo(positionMs)) },
+                        onSegmentClick = { segment -> onAction(MainScreenAction.SeekToSegment(segment)) }
                     )
                 }
 
@@ -249,13 +281,21 @@ private fun MainScreenContent(
                         TranscribingScreen(
                             progress = 100,
                             segments = uiState.transcriptionSegments,
-                            showTimestamps = uiState.showTimestamps,
                             isComplete = true,
                             transcriptionResult = result,
                             onDelete = if (uiState.hasSavedTranscription) {
                                 { onAction(MainScreenAction.DeleteSavedTranscription) }
                             } else null,
-                            formatText = formatText
+                            formatText = formatText,
+                            listenModeEnabled = uiState.listenModeEnabled,
+                            listenModeAvailable = uiState.listenModeAvailable,
+                            onToggleListenMode = { enabled ->
+                                onAction(MainScreenAction.ToggleListenMode(enabled))
+                            },
+                            playbackState = uiState.playbackState,
+                            onPlayPause = { onAction(MainScreenAction.PlayPause) },
+                            onSeek = { positionMs -> onAction(MainScreenAction.SeekTo(positionMs)) },
+                            onSegmentClick = { segment -> onAction(MainScreenAction.SeekToSegment(segment)) }
                         )
                     }
                 }
@@ -263,12 +303,7 @@ private fun MainScreenContent(
                 is TranscriptionUiState.Error -> {
                     BackHandler { onAction(MainScreenAction.ClearResult) }
                     val message = state.message
-                    ErrorScreen(
-                        message = message,
-                        onGoBack = {
-                            onAction(MainScreenAction.ClearResult)
-                        }
-                    )
+                    ErrorScreen(message = message)
                 }
             }
         }
@@ -483,7 +518,6 @@ private fun ActionCard(
 private fun TranscribingScreen(
     progress: Int,
     segments: List<com.voiceskip.whispercpp.whisper.WhisperSegment>,
-    showTimestamps: Boolean,
     isComplete: Boolean,
     detectedLanguage: String? = null,
     currentLanguage: String = UserPreferences.LANGUAGE_AUTO,
@@ -491,100 +525,35 @@ private fun TranscribingScreen(
     transcriptionResult: TranscriptionResult? = null,
     onStop: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
-    formatText: (String) -> String = { it }
+    formatText: (String) -> String = { it },
+    listenModeEnabled: Boolean = false,
+    listenModeAvailable: Boolean = false,
+    onToggleListenMode: ((Boolean) -> Unit)? = null,
+    playbackState: PlaybackState = PlaybackState(),
+    onPlayPause: (() -> Unit)? = null,
+    onSeek: ((Long) -> Unit)? = null,
+    onSegmentClick: ((com.voiceskip.whispercpp.whisper.WhisperSegment) -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (!isComplete) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    SegmentedProgressBar(
-                        progress = progress,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.state_transcribing),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            if (onLanguageChange != null) {
-                                LanguageDropdown(
-                                    currentLanguage = currentLanguage,
-                                    detectedLanguage = detectedLanguage,
-                                    onLanguageChange = onLanguageChange
-                                )
-                            }
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (progress > 0 && progress < 100) {
-                                Text(
-                                    text = "$progress%",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
-
-                            if (onStop != null) {
-                                FilledIconButton(
-                                    onClick = onStop,
-                                    modifier = Modifier.size(32.dp),
-                                    colors = IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.error,
-                                        contentColor = MaterialTheme.colorScheme.onError
-                                    )
-                                ) {
-                                    Icon(
-                                        Icons.Default.Stop,
-                                        contentDescription = stringResource(R.string.button_stop_short),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
         if (segments.isNotEmpty()) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                SegmentsContent(segments = segments, showTimestamps = showTimestamps, isComplete = isComplete, formatText = formatText)
+                SegmentsContent(
+                    segments = segments,
+                    showTimestamps = listenModeEnabled,
+                    isComplete = isComplete,
+                    formatText = formatText,
+                    listenModeEnabled = listenModeEnabled,
+                    playbackPositionMs = playbackState.currentPositionMs,
+                    onSegmentClick = if (listenModeEnabled) onSegmentClick else null
+                )
             }
         } else if (!isComplete) {
             Card(
@@ -605,17 +574,100 @@ private fun TranscribingScreen(
             }
         }
 
-        if (isComplete && transcriptionResult != null) {
-            val context = LocalContext.current
-            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            var showCopyConfirmation by remember { mutableStateOf(false) }
+        if (!isComplete) {
+            Spacer(modifier = Modifier.height(16.dp))
 
-            LaunchedEffect(showCopyConfirmation) {
-                if (showCopyConfirmation) {
-                    delay(2000)
-                    showCopyConfirmation = false
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SegmentedProgressBar(
+                            progress = progress,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(8.dp)
+                        )
+                        Text(
+                            text = "$progress%",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.width(36.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.End
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (onLanguageChange != null) {
+                            LanguageDropdown(
+                                currentLanguage = currentLanguage,
+                                detectedLanguage = detectedLanguage,
+                                onLanguageChange = onLanguageChange
+                            )
+                        }
+
+                        if (listenModeAvailable && onToggleListenMode != null) {
+                            ListenModeChip(
+                                enabled = listenModeEnabled,
+                                onToggle = { onToggleListenMode(!listenModeEnabled) }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (onStop != null) {
+                            FilledIconButton(
+                                onClick = onStop,
+                                modifier = Modifier.size(36.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.error,
+                                    contentColor = MaterialTheme.colorScheme.onError
+                                )
+                            ) {
+                                Icon(
+                                    Icons.Default.Stop,
+                                    contentDescription = stringResource(R.string.button_stop_short),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
                 }
             }
+
+            if (listenModeEnabled && listenModeAvailable && onPlayPause != null && onSeek != null) {
+                PlaybackControlsCard(
+                    playbackState = playbackState,
+                    segments = segments,
+                    transcriptionProgress = progress,
+                    onPlayPause = onPlayPause,
+                    onSeek = onSeek,
+                    onSegmentClick = onSegmentClick
+                )
+            }
+        }
+
+        if (isComplete && transcriptionResult != null) {
+            val context = LocalContext.current
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -625,13 +677,16 @@ private fun TranscribingScreen(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer
                 )
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(12.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "${transcriptionResult.audioLengthFormatted} of audio completed in ${transcriptionResult.durationFormatted}",
@@ -646,49 +701,25 @@ private fun TranscribingScreen(
                         )
                     }
 
-                    IconButton(onClick = {
-                        val shareIntent = Intent().apply {
-                            action = Intent.ACTION_SEND
-                            putExtra(Intent.EXTRA_TEXT, formatText(transcriptionResult.text))
-                            type = "text/plain"
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_transcription)))
-                    }) {
-                        Icon(
-                            Icons.Default.Share,
-                            contentDescription = stringResource(R.string.button_share),
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    if (listenModeAvailable && onToggleListenMode != null) {
+                        ListenModeChip(
+                            enabled = listenModeEnabled,
+                            onToggle = { onToggleListenMode(!listenModeEnabled) }
                         )
                     }
+                }
                 }
             }
 
-            if (showCopyConfirmation) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally),
-                    color = MaterialTheme.colorScheme.inverseSurface,
-                    shape = MaterialTheme.shapes.small
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.inverseOnSurface,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.msg_copied),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.inverseOnSurface
-                        )
-                    }
-                }
+            if (listenModeEnabled && listenModeAvailable && onPlayPause != null && onSeek != null) {
+                PlaybackControlsCard(
+                    playbackState = playbackState,
+                    segments = segments,
+                    transcriptionProgress = 100,
+                    onPlayPause = onPlayPause,
+                    onSeek = onSeek,
+                    onSegmentClick = onSegmentClick
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -714,19 +745,22 @@ private fun TranscribingScreen(
 
                 OutlinedButton(
                     onClick = {
-                        val clip = ClipData.newPlainText("Transcription", formatText(transcriptionResult.text))
-                        clipboardManager.setPrimaryClip(clip)
-                        showCopyConfirmation = true
+                        val shareIntent = Intent().apply {
+                            action = Intent.ACTION_SEND
+                            putExtra(Intent.EXTRA_TEXT, formatText(transcriptionResult.text))
+                            type = "text/plain"
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.share_transcription)))
                     },
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        Icons.Default.ContentCopy,
+                        Icons.Default.Share,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.button_copy))
+                    Text(stringResource(R.string.button_share))
                 }
             }
         }
@@ -734,20 +768,275 @@ private fun TranscribingScreen(
 }
 
 @Composable
+private fun PlaybackControlsCard(
+    playbackState: PlaybackState,
+    segments: List<com.voiceskip.whispercpp.whisper.WhisperSegment>,
+    transcriptionProgress: Int,
+    onPlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSegmentClick: ((com.voiceskip.whispercpp.whisper.WhisperSegment) -> Unit)?
+) {
+    Spacer(modifier = Modifier.height(8.dp))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Box(modifier = Modifier.padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)) {
+            PlaybackControlsRow(
+                playbackState = playbackState,
+                segments = segments,
+                transcriptionProgress = transcriptionProgress,
+                onPlayPause = onPlayPause,
+                onSeek = onSeek,
+                onSegmentClick = onSegmentClick
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaybackControlsRow(
+    playbackState: PlaybackState,
+    segments: List<com.voiceskip.whispercpp.whisper.WhisperSegment>,
+    transcriptionProgress: Int = 100,
+    onPlayPause: () -> Unit,
+    onSeek: (Long) -> Unit,
+    onSegmentClick: ((com.voiceskip.whispercpp.whisper.WhisperSegment) -> Unit)? = null
+) {
+    val durationMs = playbackState.durationMs
+    val currentPositionMs = playbackState.currentPositionMs
+    val isPlaying = playbackState.isPlaying
+    val isPrepared = playbackState.isPrepared
+
+    val currentSegmentIndex = remember(currentPositionMs, segments) {
+        findCurrentSegmentIndex(currentPositionMs, segments)
+    }
+
+    var sliderPosition by remember { mutableStateOf(currentPositionMs.toFloat()) }
+    var isSliding by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentPositionMs, isSliding) {
+        if (!isSliding) {
+            sliderPosition = currentPositionMs.toFloat()
+        }
+    }
+
+    val onContainerColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val disabledColor = onContainerColor.copy(alpha = 0.38f)
+    val untranscribedColor = onContainerColor.copy(alpha = 0.12f)
+    val transcribedColor = onContainerColor.copy(alpha = 0.3f)
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(
+            onClick = {
+                if (currentSegmentIndex > 0 && segments.isNotEmpty()) {
+                    onSegmentClick?.invoke(segments[currentSegmentIndex - 1])
+                }
+            },
+            enabled = isPrepared && currentSegmentIndex > 0,
+            modifier = Modifier.size(40.dp)  // 48dp touch target via padding
+        ) {
+            Icon(
+                imageVector = Icons.Default.SkipPrevious,
+                contentDescription = stringResource(R.string.listen_previous_segment),
+                modifier = Modifier.size(20.dp),
+                tint = if (isPrepared && currentSegmentIndex > 0) onContainerColor else disabledColor
+            )
+        }
+
+        FilledIconButton(
+            onClick = onPlayPause,
+            modifier = Modifier.size(36.dp),
+            enabled = isPrepared
+        ) {
+            Icon(
+                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                contentDescription = stringResource(
+                    if (isPlaying) R.string.listen_pause else R.string.listen_play
+                ),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        IconButton(
+            onClick = {
+                if (currentSegmentIndex < segments.size - 1 && segments.isNotEmpty()) {
+                    onSegmentClick?.invoke(segments[currentSegmentIndex + 1])
+                }
+            },
+            enabled = isPrepared && currentSegmentIndex < segments.size - 1,
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SkipNext,
+                contentDescription = stringResource(R.string.listen_next_segment),
+                modifier = Modifier.size(20.dp),
+                tint = if (isPrepared && currentSegmentIndex < segments.size - 1) onContainerColor else disabledColor
+            )
+        }
+
+        Text(
+            text = formatDuration(if (isSliding) sliderPosition.toLong() else currentPositionMs),
+            style = MaterialTheme.typography.labelSmall,
+            color = onContainerColor
+        )
+
+        val transcribedFraction = transcriptionProgress / 100f
+        val playedFraction = if (durationMs > 0) currentPositionMs.toFloat() / durationMs else 0f
+
+        Slider(
+            value = if (isSliding) sliderPosition else currentPositionMs.toFloat(),
+            onValueChange = { newValue ->
+                isSliding = true
+                sliderPosition = newValue
+            },
+            onValueChangeFinished = {
+                onSeek(sliderPosition.toLong())
+                isSliding = false
+            },
+            valueRange = 0f..durationMs.toFloat().coerceAtLeast(1f),
+            enabled = isPrepared,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 4.dp),
+            thumb = {
+                Box(
+                    modifier = Modifier.size(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .background(
+                                color = if (isPrepared) primaryColor else disabledColor,
+                                shape = CircleShape
+                            )
+                    )
+                }
+            },
+            track = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    color = untranscribedColor,
+                                    shape = CircleShape
+                                )
+                        )
+                        if (transcribedFraction > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(transcribedFraction)
+                                    .fillMaxHeight()
+                                    .background(
+                                        color = transcribedColor,
+                                        shape = CircleShape
+                                    )
+                            )
+                        }
+                        if (playedFraction > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(playedFraction)
+                                    .fillMaxHeight()
+                                    .background(
+                                        color = if (isPrepared) primaryColor else disabledColor,
+                                        shape = CircleShape
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        )
+
+        Text(
+            text = formatDuration(durationMs),
+            style = MaterialTheme.typography.labelSmall,
+            color = onContainerColor
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ListenModeChip(
+    enabled: Boolean,
+    onToggle: () -> Unit
+) {
+    FilterChip(
+        selected = enabled,
+        onClick = onToggle,
+        label = {
+            Text(
+                text = stringResource(if (enabled) R.string.listen_mode_active else R.string.listen_mode),
+                style = MaterialTheme.typography.labelSmall
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Headphones,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    )
+}
+
+@Composable
 private fun SegmentRow(
     segment: com.voiceskip.whispercpp.whisper.WhisperSegment,
-    showTimestamps: Boolean
+    showTimestamps: Boolean,
+    isHighlighted: Boolean = false,
+    isClickable: Boolean = false,
+    onClick: (() -> Unit)? = null
 ) {
+    val backgroundColor = if (isHighlighted) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    } else {
+        Color.Transparent
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .background(backgroundColor)
+            .then(
+                if (isClickable && onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
+            .padding(vertical = 8.dp, horizontal = 4.dp)
     ) {
         if (showTimestamps) {
             Text(
                 text = segment.startTimeFormatted,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
+                color = if (isHighlighted) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outline
+                },
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
@@ -759,7 +1048,7 @@ private fun SegmentRow(
 }
 
 @Composable
-private fun ErrorScreen(message: String, onGoBack: () -> Unit) {
+private fun ErrorScreen(message: String) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -791,18 +1080,6 @@ private fun ErrorScreen(message: String, onGoBack: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 32.dp)
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Button(onClick = onGoBack) {
-            Icon(
-                Icons.Default.ArrowBack,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(stringResource(R.string.button_go_back))
-        }
     }
 }
 
@@ -853,6 +1130,35 @@ private fun RecordingScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        if (segments.isNotEmpty()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                SegmentsContent(segments = segments, showTimestamps = showTimestamps, isComplete = false, formatText = formatText)
+            }
+        } else {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.msg_transcription_delay),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = cardColor)
@@ -928,35 +1234,6 @@ private fun RecordingScreen(
                 )
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (segments.isNotEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                SegmentsContent(segments = segments, showTimestamps = showTimestamps, isComplete = false, formatText = formatText)
-            }
-        } else {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.msg_transcription_delay),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -965,8 +1242,16 @@ private fun SegmentsContent(
     segments: List<com.voiceskip.whispercpp.whisper.WhisperSegment>,
     showTimestamps: Boolean,
     isComplete: Boolean,
-    formatText: (String) -> String = { it }
+    formatText: (String) -> String = { it },
+    listenModeEnabled: Boolean = false,
+    playbackPositionMs: Long = 0,
+    onSegmentClick: ((com.voiceskip.whispercpp.whisper.WhisperSegment) -> Unit)? = null
 ) {
+    val currentSegmentIndex = remember(playbackPositionMs, segments, listenModeEnabled) {
+        if (!listenModeEnabled) -1
+        else findCurrentSegmentIndex(playbackPositionMs, segments)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -974,6 +1259,14 @@ private fun SegmentsContent(
     ) {
         val listState = rememberLazyListState()
         val scope = rememberCoroutineScope()
+
+        // Auto-scroll to current segment during playback (show previous segment above)
+        LaunchedEffect(currentSegmentIndex, listenModeEnabled) {
+            if (listenModeEnabled && currentSegmentIndex >= 0) {
+                val scrollToIndex = maxOf(0, currentSegmentIndex - 1)
+                listState.animateScrollToItem(scrollToIndex)
+            }
+        }
 
         val isAtBottom by remember {
             derivedStateOf {
@@ -986,7 +1279,7 @@ private fun SegmentsContent(
             }
         }
 
-        val showNewContentIndicator = !isAtBottom && !isComplete && segments.isNotEmpty()
+        val showNewContentIndicator = !isAtBottom && !isComplete && segments.isNotEmpty() && !listenModeEnabled
 
         Box(modifier = Modifier.fillMaxSize()) {
             SelectionContainer {
@@ -996,8 +1289,16 @@ private fun SegmentsContent(
                     contentPadding = PaddingValues(bottom = 48.dp)
                 ) {
                     if (showTimestamps) {
-                        items(segments, key = { it.startMs }) { segment ->
-                            SegmentRow(segment, showTimestamps = true)
+                        items(segments.size, key = { segments[it].startMs }) { index ->
+                            val segment = segments[index]
+                            val isCurrentSegment = index == currentSegmentIndex
+                            SegmentRow(
+                                segment = segment,
+                                showTimestamps = true,
+                                isHighlighted = isCurrentSegment && listenModeEnabled,
+                                isClickable = onSegmentClick != null,
+                                onClick = { onSegmentClick?.invoke(segment) }
+                            )
                         }
                     } else {
                         item {

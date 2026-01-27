@@ -18,7 +18,7 @@ class FakeSettingsRepository : SettingsRepository {
 
     private val _userSettings = MutableStateFlow(
         UserSettings(
-            showTimestamps = true,
+            listenModeEnabled = false,
             translateToEnglish = false,
             model = "ggml-base.en.bin",
             gpuEnabled = true,
@@ -29,7 +29,7 @@ class FakeSettingsRepository : SettingsRepository {
     )
     override val userSettings: Flow<UserSettings> = _userSettings.asStateFlow()
 
-    var updateShowTimestampsCalled = false
+    var updateListenModeEnabledCalled = false
     var updateTranslateToEnglishCalled = false
     var updateModelCalled = false
     var updateGpuEnabledCalled = false
@@ -39,11 +39,11 @@ class FakeSettingsRepository : SettingsRepository {
 
     var updateResult: Result<Unit> = Result.success(Unit)
 
-    override suspend fun updateShowTimestamps(show: Boolean): Result<Unit> {
-        updateShowTimestampsCalled = true
+    override suspend fun updateListenModeEnabled(enabled: Boolean): Result<Unit> {
+        updateListenModeEnabledCalled = true
         return updateResult.also {
             if (it.isSuccess) {
-                _userSettings.update { settings -> settings.copy(showTimestamps = show) }
+                _userSettings.update { settings -> settings.copy(listenModeEnabled = enabled) }
             }
         }
     }
@@ -113,7 +113,7 @@ class FakeSettingsRepository : SettingsRepository {
 
     fun reset() {
         _userSettings.value = UserSettings(
-            showTimestamps = true,
+            listenModeEnabled = false,
             translateToEnglish = false,
             model = "ggml-base.en.bin",
             gpuEnabled = true,
@@ -121,7 +121,7 @@ class FakeSettingsRepository : SettingsRepository {
             numThreads = 4,
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
-        updateShowTimestampsCalled = false
+        updateListenModeEnabledCalled = false
         updateTranslateToEnglishCalled = false
         updateModelCalled = false
         updateGpuEnabledCalled = false

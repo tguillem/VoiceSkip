@@ -100,39 +100,6 @@ fun SettingsScreen(
         ) {
             SectionHeader(title = stringResource(R.string.settings_section_transcription))
             Spacer(modifier = Modifier.height(Spacing.small))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(Spacing.large),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.settings_show_timestamps),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.extraSmall))
-                        Text(
-                            text = stringResource(R.string.settings_show_timestamps_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = uiState.showTimestamps,
-                        onCheckedChange = { viewModel.setShowTimestamps(it) }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(Spacing.medium))
             DefaultLanguageSelector(
                 selectedLanguage = uiState.defaultLanguage,
                 onLanguageSelected = { viewModel.setDefaultLanguage(it) }
