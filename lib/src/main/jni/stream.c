@@ -350,7 +350,7 @@ find_chunk_boundary(struct thread_ctx *tctx, int available,
         return search_end;
 
     if (!vad_segs)
-        return search_start;
+        return search_end;
 
     int silence_pos = find_silence_in_segments(
         vad_segs, search_start, search_end, cctx->min_silence_ms, vad_offset);
