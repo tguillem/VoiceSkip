@@ -44,6 +44,7 @@ struct whisper_stream_params
     int   min_silence_ms;
 
     float vad_threshold;
+    bool  vad_enabled;
 
     whisper_stream_read_callback read_callback;
     void *read_callback_user_data;

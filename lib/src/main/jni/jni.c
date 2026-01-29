@@ -152,6 +152,7 @@ struct start_args
     char *language;
     bool translate;
     bool live;
+    bool vad_enabled;
     unsigned int session_id;
 };
 
@@ -232,6 +233,7 @@ start_args_init(struct start_args *args)
     args->language = NULL;
     args->translate = false;
     args->live = false;
+    args->vad_enabled = true;
     args->session_id = 0;
 }
 
@@ -698,6 +700,7 @@ process_start_command(struct whisper_jni_context *ctx,
     sparams.language_callback_user_data = ctx;
     sparams.abort_callback = whisper_abort_callback_impl;
     sparams.abort_callback_user_data = ctx;
+    sparams.vad_enabled = args->vad_enabled;
     if (args->live)
     {
         sparams.vad_threshold = 0.5;
@@ -716,11 +719,11 @@ process_start_command(struct whisper_jni_context *ctx,
     sparams.slots[1].num_threads = sparams.slots[1].ctx ? args->num_threads : 0;
 
     LOGI("Starting stream: ctx0=%s (%d threads), ctx1=%s (%d threads), "
-         "lang=%s, live=%d",
+         "lang=%s, live=%d, vad=%d",
          ctx->use_gpu ? "gpu" : "cpu", sparams.slots[0].num_threads,
          sparams.slots[1].ctx ? "cpu" : "none", sparams.slots[1].num_threads,
          args->language ? args->language : "auto",
-         args->live);
+         args->live, args->vad_enabled);
 
     int result = whisper_stream_full(wparams, sparams);
 
@@ -1090,6 +1093,7 @@ nativeStart(JNIEnv *env, jobject thiz, jint num_threads,
     args.num_threads = num_threads;
     args.translate = translate;
     args.live = live;
+    args.vad_enabled = vad_enabled;
     args.session_id = atomic_load(&ctx->session_id);
 
     struct command_node *cmd = allocate_command_start(&args);
@@ -1101,9 +1105,9 @@ nativeStart(JNIEnv *env, jobject thiz, jint num_threads,
         return;
     }
 
-    LOGI("Queuing start command: threads=%d, lang=%s, translate=%d, session=%u, live=%d",
+    LOGI("Queuing start command: threads=%d, lang=%s, translate=%d, session=%u, live=%d, vad=%d",
          num_threads, args.language ? args.language : "auto",
-         translate, args.session_id, live);
+         translate, args.session_id, live, vad_enabled);
 
     pthread_mutex_lock(&ctx->mutex);
     enqueue_command_node(ctx, cmd);

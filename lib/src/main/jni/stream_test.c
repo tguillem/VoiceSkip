@@ -276,6 +276,7 @@ usage(const char *prog)
     fprintf(stderr, "  -v, --vad-model PATH  VAD model\n");
     fprintf(stderr, "  -d, --debug           Enable debug output\n");
     fprintf(stderr, "  -L, --live            Live mode (5s min, 10s extend, 200ms silence)\n");
+    fprintf(stderr, "      --no-vad          Disable internal VAD\n");
 }
 
 static int
@@ -326,6 +327,7 @@ main(int argc, char **argv)
     bool use_gpu = true;
     bool debug = false;
     bool live = false;
+    bool vad_enabled = true;
 
     static struct option long_opts[] = {
         {"model",     required_argument, 0, 'm'},
@@ -337,6 +339,7 @@ main(int argc, char **argv)
         {"vad-model", required_argument, 0, 'v'},
         {"debug",     no_argument,       0, 'd'},
         {"live",      no_argument,       0, 'L'},
+        {"no-vad",    no_argument,       0, 'V'},
         {0, 0, 0, 0}
     };
 
@@ -354,6 +357,7 @@ main(int argc, char **argv)
         case 'v': vad_model = optarg; break;
         case 'd': debug = true; break;
         case 'L': live = true; break;
+        case 'V': vad_enabled = false; break;
         default:
             usage(argv[0]);
             return 1;
@@ -434,6 +438,7 @@ main(int argc, char **argv)
         sparams.min_chunk_ms = 30000;
         sparams.chunk_extend_ms = 30000;
     }
+    sparams.vad_enabled = vad_enabled;
 
     ret = whisper_stream_full(wparams, sparams);
 

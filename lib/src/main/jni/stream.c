@@ -55,6 +55,7 @@ struct common_ctx
     int min_silence_ms;
 
     float vad_threshold;
+    bool vad_enabled;
 
     int max_ctx_tokens;
 
@@ -347,7 +348,12 @@ pass_context(struct thread_ctx *tctx, int chunk_idx)
     if (!cctx->single_thread)
         pthread_mutex_lock(&cctx->mutex);
 
-    int n = 0;
+    int n;
+    if (cctx->vad_enabled)
+        n = 0;
+    else
+        n = whisper_full_get_prompt_past(tctx->ctx, dst->tokens,
+                                         cctx->max_ctx_tokens);
 
     /* Signal that output from this chunk is complete */
     tctx->last_output_chunk = chunk_idx;
@@ -622,10 +628,13 @@ process_one_chunk(struct thread_ctx *tctx)
         params.context_callback_user_data = tctx;
     }
 
-    params.vad_params.threshold = tctx->cctx->vad_threshold;
-    params.vad_params.min_silence_duration_ms = tctx->cctx->min_silence_ms;
-    whisper_set_vad_context(tctx->ctx, tctx->vad_ctx);
-    params.vad = true;
+    if (tctx->cctx->vad_enabled)
+    {
+        params.vad_params.threshold = tctx->cctx->vad_threshold;
+        params.vad_params.min_silence_duration_ms = tctx->cctx->min_silence_ms;
+        whisper_set_vad_context(tctx->ctx, tctx->vad_ctx);
+        params.vad = true;
+    }
 
     tctx->chunk_idx = chunk_idx;
 
@@ -718,6 +727,7 @@ init_common_ctx(struct common_ctx *cctx,
     cctx->single_thread = single_thread;
 
     cctx->vad_threshold = sparams->vad_threshold;
+    cctx->vad_enabled = sparams->vad_enabled;
 
     pthread_mutex_init(&cctx->mutex, NULL);
     pthread_cond_init(&cctx->cond, NULL);
@@ -776,6 +786,7 @@ whisper_stream_default_params(void)
     params.overlap_ms = 300;
     params.min_silence_ms = 300;
     params.vad_threshold = 0.5f;
+    params.vad_enabled = true;
     params.read_callback = NULL;
     params.read_callback_user_data = NULL;
     params.segment_callback = NULL;
