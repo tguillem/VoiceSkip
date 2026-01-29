@@ -10,6 +10,7 @@ data class UserSettings(
     val model: String,
     val gpuEnabled: Boolean,
     val turboModeEnabled: Boolean,
+    val vadEnabled: Boolean,
     val numThreads: Int,
     val defaultLanguage: String
 )
@@ -25,6 +26,7 @@ interface SettingsRepository {
     suspend fun updateModel(model: String): Result<Unit>
     suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit>
     suspend fun updateTurboModeEnabled(enabled: Boolean): Result<Unit>
+    suspend fun updateVadEnabled(enabled: Boolean): Result<Unit>
     suspend fun updateNumThreads(numThreads: Int): Result<Unit>
     suspend fun updateDefaultLanguage(language: String): Result<Unit>
 }

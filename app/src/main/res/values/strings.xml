@@ -114,6 +114,8 @@
     <string name="settings_turbo_title">Turbo Mode</string>
     <string name="settings_turbo_desc">Uses %d CPU threads + GPU</string>
     <string name="settings_turbo_desc_enabled">Using %d CPU threads + GPU</string>
+    <string name="settings_vad_title">Voice Activity Detection</string>
+    <string name="settings_vad_desc">Better for noisy audio, but may miss quiet or short speech</string>
 
     <!-- Settings - About -->
     <string name="settings_section_about">About</string>

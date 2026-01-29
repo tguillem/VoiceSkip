@@ -30,6 +30,7 @@ data class SettingsUiState(
     val model: String = "",
     val gpuEnabled: Boolean = true,
     val turboModeEnabled: Boolean = false,
+    val vadEnabled: Boolean = true,
     val gpuStatus: GpuStatus = GpuStatus.Disabled,
     val numThreads: Int = 4,
     val defaultLanguage: String = UserPreferences.LANGUAGE_AUTO,
@@ -66,6 +67,7 @@ class SettingsViewModel @Inject constructor(
             model = settings.model,
             gpuEnabled = settings.gpuEnabled,
             turboModeEnabled = settings.turboModeEnabled,
+            vadEnabled = settings.vadEnabled,
             gpuStatus = gpuStatus,
             numThreads = settings.numThreads,
             defaultLanguage = settings.defaultLanguage,
@@ -116,6 +118,14 @@ class SettingsViewModel @Inject constructor(
     fun setTurboModeEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.updateTurboModeEnabled(enabled).onFailure { exception ->
+                ErrorHandler.logError(LOG_TAG, exception, critical = false)
+            }
+        }
+    }
+
+    fun setVadEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsRepository.updateVadEnabled(enabled).onFailure { exception ->
                 ErrorHandler.logError(LOG_TAG, exception, critical = false)
             }
         }

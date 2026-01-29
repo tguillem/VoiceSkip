@@ -1055,7 +1055,8 @@ nativeLoadSecondModel(JNIEnv *env, jobject thiz, jobject asset_manager,
 
 static void
 nativeStart(JNIEnv *env, jobject thiz, jint num_threads,
-            jstring language, jboolean translate, jboolean live)
+            jstring language, jboolean translate, jboolean live,
+            jboolean vad_enabled)
 {
     struct whisper_jni_context *ctx = get_jni_context(env, thiz);
     if (!ctx)
@@ -1232,7 +1233,7 @@ JNI_OnLoad(JavaVM *vm, void *reserved)
         {"nativeLoadSecondModel",
          "(Landroid/content/res/AssetManager;Ljava/lang/String;Ljava/lang/String;)V",
          (void*)nativeLoadSecondModel},
-        {"nativeStart", "(ILjava/lang/String;ZZ)V", (void*)nativeStart},
+        {"nativeStart", "(ILjava/lang/String;ZZZ)V", (void*)nativeStart},
         {"nativeStop", "()V", (void*)nativeStop},
         {"nativeSetDuration", "(J)V", (void*)nativeSetDuration},
         {"nativeUpdateLanguage", "(Ljava/lang/String;)V", (void*)nativeUpdateLanguage},

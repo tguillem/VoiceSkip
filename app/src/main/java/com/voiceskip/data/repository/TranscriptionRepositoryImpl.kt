@@ -97,7 +97,8 @@ class TranscriptionRepositoryImpl @Inject constructor(
                 numThreads = getEffectiveThreadCount(settings.numThreads),
                 language = languageCode,
                 translateToEnglish = settings.translateToEnglish,
-                gpuEnabled = settings.gpuEnabled
+                gpuEnabled = settings.gpuEnabled,
+                vadEnabled = settings.vadEnabled
             ).collect { progress ->
                 when (progress) {
                     is LiveTranscriptionUseCase.Progress.Recording -> {
@@ -202,7 +203,8 @@ class TranscriptionRepositoryImpl @Inject constructor(
                     numThreads = getEffectiveThreadCount(settings.numThreads),
                     language = languageCode,
                     translateToEnglish = settings.translateToEnglish,
-                    gpuEnabled = settings.gpuEnabled
+                    gpuEnabled = settings.gpuEnabled,
+                    vadEnabled = settings.vadEnabled
                 ).collect { progress ->
                     when (progress) {
                         is FileTranscriptionUseCase.Progress.Transcribing -> {

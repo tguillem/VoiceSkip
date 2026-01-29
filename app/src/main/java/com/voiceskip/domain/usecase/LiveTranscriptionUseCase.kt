@@ -70,7 +70,8 @@ class LiveTranscriptionUseCase @Inject constructor(
         numThreads: Int,
         language: String?,
         translateToEnglish: Boolean,
-        gpuEnabled: Boolean
+        gpuEnabled: Boolean,
+        vadEnabled: Boolean = true
     ): Flow<Progress> = channelFlow {
         val startTime = System.currentTimeMillis()
         val state = LiveState()
@@ -162,7 +163,8 @@ class LiveTranscriptionUseCase @Inject constructor(
                 numThreads = numThreads,
                 language = language,
                 translate = translateToEnglish,
-                live = true
+                live = true,
+                vadEnabled = vadEnabled
             )
 
             eventJob.join()

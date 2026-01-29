@@ -33,6 +33,7 @@ class UserPreferences(private val context: Context) {
         private const val KEY_TURBO_LOAD_IN_PROGRESS = "turbo_load_in_progress"
         private val TURBO_MODE_KEY = booleanPreferencesKey("turbo_mode")
         private val TURBO_MODE_SET_KEY = booleanPreferencesKey("turbo_mode_set")
+        private val VAD_ENABLED_KEY = booleanPreferencesKey("vad_enabled")
         private const val MIN_RAM_GB_FOR_TURBO_AUTO = 6.0
 
         const val LANGUAGE_AUTO = "auto"
@@ -192,6 +193,10 @@ class UserPreferences(private val context: Context) {
         preferences[TURBO_MODE_SET_KEY] ?: false
     }
 
+    val vadEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[VAD_ENABLED_KEY] ?: true
+    }
+
     val numThreads: Flow<Int> = context.dataStore.data.map { preferences ->
         val isGpuEnabled = preferences[GPU_ENABLED_KEY] ?: true
         preferences[NUM_THREADS_KEY] ?: getDefaultNumThreads(isGpuEnabled)
@@ -235,6 +240,12 @@ class UserPreferences(private val context: Context) {
             if (isUserAction) {
                 preferences[TURBO_MODE_SET_KEY] = true
             }
+        }
+    }
+
+    suspend fun setVadEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[VAD_ENABLED_KEY] = enabled
         }
     }
 

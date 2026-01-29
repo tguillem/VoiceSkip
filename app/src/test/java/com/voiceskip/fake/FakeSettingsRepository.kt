@@ -23,6 +23,7 @@ class FakeSettingsRepository : SettingsRepository {
             model = "ggml-base.en.bin",
             gpuEnabled = true,
             turboModeEnabled = false,
+            vadEnabled = true,
             numThreads = 4,
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
@@ -34,6 +35,7 @@ class FakeSettingsRepository : SettingsRepository {
     var updateModelCalled = false
     var updateGpuEnabledCalled = false
     var updateTurboModeEnabledCalled = false
+    var updateVadEnabledCalled = false
     var updateNumThreadsCalled = false
     var updateDefaultLanguageCalled = false
 
@@ -87,6 +89,15 @@ class FakeSettingsRepository : SettingsRepository {
         }
     }
 
+    override suspend fun updateVadEnabled(enabled: Boolean): Result<Unit> {
+        updateVadEnabledCalled = true
+        return updateResult.also {
+            if (it.isSuccess) {
+                _userSettings.update { settings -> settings.copy(vadEnabled = enabled) }
+            }
+        }
+    }
+
     override suspend fun updateNumThreads(numThreads: Int): Result<Unit> {
         updateNumThreadsCalled = true
         return updateResult.also {
@@ -118,6 +129,7 @@ class FakeSettingsRepository : SettingsRepository {
             model = "ggml-base.en.bin",
             gpuEnabled = true,
             turboModeEnabled = false,
+            vadEnabled = true,
             numThreads = 4,
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
@@ -126,6 +138,7 @@ class FakeSettingsRepository : SettingsRepository {
         updateModelCalled = false
         updateGpuEnabledCalled = false
         updateTurboModeEnabledCalled = false
+        updateVadEnabledCalled = false
         updateNumThreadsCalled = false
         updateDefaultLanguageCalled = false
         updateResult = Result.success(Unit)

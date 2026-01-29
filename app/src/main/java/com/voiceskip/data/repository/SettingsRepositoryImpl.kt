@@ -24,15 +24,17 @@ class SettingsRepositoryImpl(
         ) { listenMode, translate, model, gpu, turbo ->
             PartialSettings(listenMode, translate, model, gpu, turbo)
         },
+        userPreferences.vadEnabled,
         userPreferences.numThreads,
         userPreferences.defaultLanguage
-    ) { partial, threads, language ->
+    ) { partial, vad, threads, language ->
         UserSettings(
             listenModeEnabled = partial.listenModeEnabled,
             translateToEnglish = partial.translateToEnglish,
             model = partial.model,
             gpuEnabled = partial.gpuEnabled,
             turboModeEnabled = partial.turboModeEnabled,
+            vadEnabled = vad,
             numThreads = threads,
             defaultLanguage = language
         )
@@ -64,6 +66,10 @@ class SettingsRepositoryImpl(
 
     override suspend fun updateTurboModeEnabled(enabled: Boolean): Result<Unit> = runCatching {
         userPreferences.setTurboModeEnabled(enabled)
+    }
+
+    override suspend fun updateVadEnabled(enabled: Boolean): Result<Unit> = runCatching {
+        userPreferences.setVadEnabled(enabled)
     }
 
     override suspend fun updateNumThreads(numThreads: Int): Result<Unit> = runCatching {

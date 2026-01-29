@@ -175,19 +175,21 @@ class WhisperContext private constructor(
      * @param language Language code or null for auto-detect
      * @param translate If true, translate to English
      * @param live True for live recording, false for file transcription
+     * @param vadEnabled If true, use VAD to detect voice activity
      */
     fun startStream(
         audioProvider: AudioProvider,
         numThreads: Int,
         language: String? = null,
         translate: Boolean = false,
-        live: Boolean = false
+        live: Boolean = false,
+        vadEnabled: Boolean = true
     ) {
         require(mInstance != 0L) { "WhisperContext not initialized" }
         this.audioProvider = audioProvider
         Log.d(LOG_TAG, "Starting stream: threads=$numThreads, lang=$language, " +
-                "translate=$translate, live=$live")
-        nativeStart(numThreads, language, translate, live)
+                "translate=$translate, live=$live, vadEnabled=$vadEnabled")
+        nativeStart(numThreads, language, translate, live, vadEnabled)
     }
 
     /**
@@ -239,7 +241,8 @@ class WhisperContext private constructor(
         numThreads: Int,
         language: String?,
         translate: Boolean,
-        live: Boolean
+        live: Boolean,
+        vadEnabled: Boolean
     )
     private external fun nativeStop()
     private external fun nativeSetDuration(durationMs: Long)

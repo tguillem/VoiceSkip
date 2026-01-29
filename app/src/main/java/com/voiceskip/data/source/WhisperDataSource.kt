@@ -30,7 +30,8 @@ interface WhisperDataSource {
         numThreads: Int,
         language: String?,
         translate: Boolean,
-        live: Boolean = false
+        live: Boolean = false,
+        vadEnabled: Boolean = true
     )
 
     fun stop()

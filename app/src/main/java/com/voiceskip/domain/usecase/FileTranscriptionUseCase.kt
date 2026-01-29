@@ -53,7 +53,8 @@ class FileTranscriptionUseCase @Inject constructor(
         numThreads: Int,
         language: String?,
         translateToEnglish: Boolean,
-        gpuEnabled: Boolean
+        gpuEnabled: Boolean,
+        vadEnabled: Boolean = true
     ): Flow<Progress> = channelFlow {
         val startTime = System.currentTimeMillis()
         var currentSegments = listOf<WhisperSegment>()
@@ -132,7 +133,8 @@ class FileTranscriptionUseCase @Inject constructor(
                 numThreads = numThreads,
                 language = language,
                 translate = translateToEnglish,
-                live = false
+                live = false,
+                vadEnabled = vadEnabled
             )
 
             eventJob.join()

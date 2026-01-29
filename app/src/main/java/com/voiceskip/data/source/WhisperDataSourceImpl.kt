@@ -71,14 +71,16 @@ class WhisperDataSourceImpl : WhisperDataSource {
         numThreads: Int,
         language: String?,
         translate: Boolean,
-        live: Boolean
+        live: Boolean,
+        vadEnabled: Boolean
     ) {
         whisperContext.startStream(
             audioProvider = audioProvider,
             numThreads = numThreads,
             language = language,
             translate = translate,
-            live = live
+            live = live,
+            vadEnabled = vadEnabled
         )
     }
 

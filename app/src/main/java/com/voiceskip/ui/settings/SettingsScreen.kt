@@ -105,6 +105,13 @@ fun SettingsScreen(
                 onLanguageSelected = { viewModel.setDefaultLanguage(it) }
             )
 
+            Spacer(modifier = Modifier.height(Spacing.medium))
+
+            VadSelector(
+                vadEnabled = uiState.vadEnabled,
+                onVadEnabledChanged = { viewModel.setVadEnabled(it) }
+            )
+
             Spacer(modifier = Modifier.height(Spacing.extraLarge))
 
             SectionHeader(title = stringResource(R.string.settings_section_notifications))
@@ -327,6 +334,45 @@ private fun TurboModeSelector(
             Switch(
                 checked = turboModeEnabled,
                 onCheckedChange = onTurboModeChanged
+            )
+        }
+    }
+}
+
+@Composable
+private fun VadSelector(
+    vadEnabled: Boolean,
+    onVadEnabledChanged: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.large),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.settings_vad_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(Spacing.extraSmall))
+                Text(
+                    text = stringResource(R.string.settings_vad_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = vadEnabled,
+                onCheckedChange = onVadEnabledChanged
             )
         }
     }

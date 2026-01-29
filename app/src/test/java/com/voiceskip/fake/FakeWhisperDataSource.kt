@@ -45,7 +45,8 @@ class FakeWhisperDataSource : WhisperDataSource {
         val numThreads: Int,
         val language: String?,
         val translate: Boolean,
-        val live: Boolean
+        val live: Boolean,
+        val vadEnabled: Boolean
     )
 
     override fun loadModel(
@@ -71,11 +72,12 @@ class FakeWhisperDataSource : WhisperDataSource {
         numThreads: Int,
         language: String?,
         translate: Boolean,
-        live: Boolean
+        live: Boolean,
+        vadEnabled: Boolean
     ) {
         startStreamCalled = true
         startStreamCalls.add(
-            StartStreamCall(audioProvider, numThreads, language, translate, live)
+            StartStreamCall(audioProvider, numThreads, language, translate, live, vadEnabled)
         )
     }
 
