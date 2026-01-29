@@ -258,7 +258,13 @@ class FileAudioProvider(
         val monoSamples = FloatArray(shortArray.size / channels) { i ->
             val sample = when (channels) {
                 1 -> shortArray[i] / 32767.0f
-                else -> (shortArray[i * channels] + shortArray[i * channels + 1]) / 32767.0f / 2.0f
+                else -> {
+                    var sum = 0
+                    for (ch in 0 until channels) {
+                        sum += shortArray[i * channels + ch]
+                    }
+                    sum / 32767.0f / channels
+                }
             }
             sample.coerceIn(-1f..1f)
         }
