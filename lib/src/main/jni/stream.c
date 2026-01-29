@@ -99,6 +99,9 @@ struct thread_ctx
 
     int64_t samples_before_chunk;
     int chunk_samples;
+
+    int chunk_idx;
+    int last_output_chunk;  // chunk index after whisper_full() completes
 };
 
 
@@ -119,9 +122,21 @@ stream_segment_callback(struct whisper_context *ctx, struct whisper_state *state
 {
     (void)state;
     struct thread_ctx *tctx = user_data;
+    struct common_ctx *cctx = tctx->cctx;
 
     if (!tctx->segment_cb)
         return;
+
+    /* Wait for previous chunk to finish outputting */
+    if (!cctx->single_thread)
+    {
+        int wait_for = tctx->chunk_idx - 1;
+        pthread_mutex_lock(&cctx->mutex);
+        while (tctx->other_tctx->last_output_chunk < wait_for
+               && !atomic_load(&cctx->abort))
+            pthread_cond_wait(&cctx->cond, &cctx->mutex);
+        pthread_mutex_unlock(&cctx->mutex);
+    }
 
     const int n_segments = whisper_full_n_segments(ctx);
     for (int i = n_segments - n_new; i < n_segments; i++)
@@ -210,6 +225,17 @@ stream_context_callback(struct whisper_context *ctx, struct whisper_state *state
     }
 
     pthread_mutex_lock(&cctx->mutex);
+
+    if (cctx->vad_enabled && tctx->lang_id != -1)
+    {
+        /* Fast path if vad is enabled: no need to wait for tokens and we
+         * already have a lang */
+        assert(tctx->n_tokens == 0);
+        int ret = copy_tokens(tctx, tokens_out, 0, lang_id_out);
+        pthread_mutex_unlock(&cctx->mutex);
+        return ret;
+    }
+
     while (!tctx->context_ready && !atomic_load(&cctx->abort))
         pthread_cond_wait(&cctx->cond, &cctx->mutex);
 
@@ -311,7 +337,7 @@ find_silence_in_segments(struct whisper_vad_segments *segs,
 }
 
 static void
-pass_context(struct thread_ctx *tctx)
+pass_context(struct thread_ctx *tctx, int chunk_idx)
 {
     struct common_ctx *cctx = tctx->cctx;
     struct thread_ctx *dst = cctx->single_thread ? tctx : tctx->other_tctx;
@@ -321,8 +347,10 @@ pass_context(struct thread_ctx *tctx)
     if (!cctx->single_thread)
         pthread_mutex_lock(&cctx->mutex);
 
-    int n = whisper_full_get_prompt_past(tctx->ctx, dst->tokens,
-                                         cctx->max_ctx_tokens);
+    int n = 0;
+
+    /* Signal that output from this chunk is complete */
+    tctx->last_output_chunk = chunk_idx;
 
     dst->n_tokens = n;
     dst->lang_id = whisper_full_lang_id(tctx->ctx);
@@ -599,6 +627,8 @@ process_one_chunk(struct thread_ctx *tctx)
     whisper_set_vad_context(tctx->ctx, tctx->vad_ctx);
     params.vad = true;
 
+    tctx->chunk_idx = chunk_idx;
+
     TCTX_LOGI(tctx, "chunk %d: start\n", chunk_idx);
     int ret = whisper_full(tctx->ctx, params, tctx->buffer,
                            ci.actual_chunk_samples);
@@ -614,7 +644,7 @@ process_one_chunk(struct thread_ctx *tctx)
         return ret;
     }
 
-    pass_context(tctx);
+    pass_context(tctx, chunk_idx);
 
     return 0;
 }
@@ -659,6 +689,9 @@ init_thread_ctx(struct thread_ctx *tctx, struct common_ctx *cctx,
     tctx->last_t1 = 0;
     tctx->segment_cb = NULL;
     tctx->segment_cb_user_data = NULL;
+
+    tctx->chunk_idx = -1;
+    tctx->last_output_chunk = -1;
 
     return 0;
 }
