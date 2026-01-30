@@ -1,3 +1,10 @@
+1.0.3
+-----
+- Improve UI (move status cards down, add file name in status bar)
+- Add Listen mode (review and play your transcription)
+- Fix hallucinations when VAD is enabled (was on by default)
+- Add a setting to enable/disable VAD
+
 1.0.2
 -----
 - Resolves Android Vitals warnings about deprecated edge-to-edge APIs

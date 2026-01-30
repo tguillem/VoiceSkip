@@ -9,9 +9,10 @@ Android app for audio/video transcription using whisper.cpp.
   video files)
 - Multiple Whisper model sizes (base, small)
 - GPU acceleration via Vulkan (Starting Vulkan 1.1)
-- Turbo mode (GPU + CPU) can achieve arround 3x realtime speed with the larger
+- Turbo mode (GPU + CPU) can achieve arround 4x realtime speed with the larger
   model (ggml-small-q8_0)
 - Background transcription with foreground service
+- Listen mode: play audio and review your transcription
 - Fully offline and open source
 
 ## Supported Languages
@@ -53,6 +54,7 @@ Optional arguments:
 - `gpu` - enable Vulkan GPU acceleration (default: true)
 - `foreground` - launch activity for GPU foreground mode (default: false)
 - `turbo` - enable CPU and GPU
+- `vad` - enable VAD (default: true)
 
 Example with custom settings:
 ```bash
@@ -62,7 +64,8 @@ Example with custom settings:
 
 ./gradlew benchmark -PtargetAbi=arm64-v8a \
     -Pandroid.testInstrumentationRunnerArguments.turbo=true \
-    -Pandroid.testInstrumentationRunnerArguments.foreground=true
+    -Pandroid.testInstrumentationRunnerArguments.foreground=true \
+    -Pandroid.testInstrumentationRunnerArguments.vad=false
 ```
 
 ## Project Structure
