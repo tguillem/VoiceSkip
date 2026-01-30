@@ -74,7 +74,8 @@ class WhisperBenchmark {
         val args = InstrumentationRegistry.getArguments()
         val hasCustomArgs = args.getString("turbo") != null ||
                             args.getString("gpu") != null ||
-                            args.getString("foreground") != null
+                            args.getString("foreground") != null ||
+                            args.getString("vad") != null
 
         if (hasCustomArgs) {
             val turbo = args.getString("turbo")?.toBoolean() ?: false
@@ -85,10 +86,11 @@ class WhisperBenchmark {
                 else -> Mode.CPU
             }
             val foreground = args.getString("foreground")?.toBoolean() ?: false
+            val vad = args.getString("vad")?.toBoolean() ?: true
 
             if (foreground && !launchActivityIfNeeded()) return@runBlocking
 
-            runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, mode, foreground)
+            runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, mode, foreground, vad)
         } else {
             runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, Mode.CPU, false)
 
@@ -103,6 +105,8 @@ class WhisperBenchmark {
                 runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, Mode.GPU, true)
 
                 runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, Mode.TURBO, true)
+
+                runBenchmark(WhisperTestUtils.MODEL_SMALL, WhisperTestUtils.AUDIO_LONG, Mode.TURBO, true, vadEnabled = false)
             }
         }
     }
@@ -114,7 +118,8 @@ class WhisperBenchmark {
         modelPath: String,
         audioAsset: String,
         mode: Mode,
-        foreground: Boolean
+        foreground: Boolean,
+        vadEnabled: Boolean = true
     ) {
         val modelName = extractModelName(modelPath)
         testScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -156,7 +161,8 @@ class WhisperBenchmark {
             audioProvider = audioProvider,
             numThreads = threads,
             language = "en",
-            translate = false
+            translate = false,
+            vadEnabled = vadEnabled
         )
 
         withTimeout(600_000) {
@@ -175,7 +181,8 @@ class WhisperBenchmark {
         val logThreads = if (mode == Mode.TURBO) {
             WhisperTestUtils.GPU_THREADS + WhisperTestUtils.TURBO_CPU_THREADS
         } else threads
-        val modeStr = "${mode.name} ${if (foreground) "foreground" else "background"}"
+        val vadStr = if (vadEnabled) "vad" else "novad"
+        val modeStr = "${mode.name} ${if (foreground) "foreground" else "background"} $vadStr"
         val rtf = if (durationMs > 0) transcribeMs.toDouble() / durationMs else 0.0
         Log.i(BENCHMARK_TAG, "BENCHMARK: $modelName | ${durationMs}ms | $logThreads threads | $modeStr | load=${loadMs}ms | transcribe=${transcribeMs}ms | RTF=${"%.2f".format(rtf)}x")
     }
