@@ -4,7 +4,6 @@ Android app for audio/video transcription using whisper.cpp.
 
 ## Features
 
-- Audio recording transcription (30-seconds delay)
 - Audio file transcription (via share or file picker, also extracts audio from
   video files)
 - Multiple Whisper model sizes (base, small)

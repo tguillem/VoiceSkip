@@ -55,6 +55,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
+ * Live microphone recording is a work-in-progress feature, hidden from users for now.
+ * Flip this to true to re-enable the entry point. When re-enabling, also restore the
+ * RECORD_AUDIO + FOREGROUND_SERVICE_MICROPHONE permissions and the microphone
+ * foregroundServiceType in AndroidManifest.xml. The rest of the recording pipeline
+ * (use case, provider, service action, repository, states) is kept intact.
+ */
+private const val LIVE_RECORDING_ENABLED = false
+
+/**
  * Find the current segment index based on playback position.
  * Adds lookahead to match the seek offset used when clicking segments.
  */
@@ -86,7 +95,7 @@ private fun TranscriptionFailureReason.toMessage(): String = when (this) {
     TranscriptionFailureReason.GPU_FAILURE_RETRYING -> stringResource(R.string.msg_gpu_transcription_failed)
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     onNavigateToSettings: () -> Unit,
@@ -175,7 +184,7 @@ fun MainScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreenContent(
     uiState: MainScreenUiState,
@@ -331,7 +340,6 @@ private fun LoadingScreen() {
     }
 }
 
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 private fun ReadyScreen(
     canTranscribe: Boolean,
@@ -341,19 +349,6 @@ private fun ReadyScreen(
     onViewLastTranscription: () -> Unit,
     onDeleteSavedTranscription: () -> Unit
 ) {
-    val micPermissionState = rememberPermissionState(
-        permission = android.Manifest.permission.RECORD_AUDIO
-    )
-
-    var startRecordingAfterPermission by remember { mutableStateOf(false) }
-
-    LaunchedEffect(micPermissionState.status.isGranted) {
-        if (startRecordingAfterPermission && micPermissionState.status.isGranted) {
-            startRecordingAfterPermission = false
-            onToggleRecord()
-        }
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -361,22 +356,14 @@ private fun ReadyScreen(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        ActionCard(
-            icon = Icons.Default.Mic,
-            title = stringResource(R.string.action_record),
-            description = stringResource(R.string.desc_record),
-            enabled = canTranscribe,
-            onClick = {
-                if (!micPermissionState.status.isGranted) {
-                    startRecordingAfterPermission = true
-                    micPermissionState.launchPermissionRequest()
-                } else {
-                    onToggleRecord()
-                }
-            }
-        )
+        if (LIVE_RECORDING_ENABLED) {
+            RecordActionCard(
+                canTranscribe = canTranscribe,
+                onToggleRecord = onToggleRecord
+            )
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         ActionCard(
             icon = Icons.Default.Folder,
@@ -404,6 +391,41 @@ private fun ReadyScreen(
             text = stringResource(R.string.tip_share_desc)
         )
     }
+}
+
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
+private fun RecordActionCard(
+    canTranscribe: Boolean,
+    onToggleRecord: () -> Unit
+) {
+    val micPermissionState = rememberPermissionState(
+        permission = android.Manifest.permission.RECORD_AUDIO
+    )
+
+    var startRecordingAfterPermission by remember { mutableStateOf(false) }
+
+    LaunchedEffect(micPermissionState.status.isGranted) {
+        if (startRecordingAfterPermission && micPermissionState.status.isGranted) {
+            startRecordingAfterPermission = false
+            onToggleRecord()
+        }
+    }
+
+    ActionCard(
+        icon = Icons.Default.Mic,
+        title = stringResource(R.string.action_record),
+        description = stringResource(R.string.desc_record),
+        enabled = canTranscribe,
+        onClick = {
+            if (!micPermissionState.status.isGranted) {
+                startRecordingAfterPermission = true
+                micPermissionState.launchPermissionRequest()
+            } else {
+                onToggleRecord()
+            }
+        }
+    )
 }
 
 @Composable

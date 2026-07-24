@@ -1,6 +1,6 @@
 # Privacy Policy for VoiceSkip
 
-**Last updated:** January 13, 2026
+**Last updated:** July 24, 2026
 
 ## Overview
 
@@ -21,12 +21,9 @@ device.
 
 VoiceSkip requests the following permissions:
 
-- **Microphone (RECORD_AUDIO):** Used to record audio for live transcription.
-  Audio is processed locally and is not transmitted anywhere.
-
-- **Media Access (READ_MEDIA_AUDIO, READ_MEDIA_VIDEO):** Used to access audio
-  and video files you choose to transcribe. These files are only read for local
-  processing.
+- **File access:** Audio and video files you open with the system file picker or
+  share into VoiceSkip are read locally for transcription. VoiceSkip does not
+  request storage or media permissions.
 
 - **Notifications (POST_NOTIFICATIONS):** Used to display transcription
   progress while the app runs in the background.
