@@ -1,3 +1,13 @@
+1.0.4
+-----
+- Update whisper.cpp to 080bbbe8 (6 months of upstream improvements)
+- Import your own whisper ggml models from device storage
+- Fix slow GPU transcription on some Mali devices (e.g. Mali-G715)
+- Fix transcription dropping part of a chunk when VAD is enabled
+- Fix hang at 0% on corrupt or unsupported audio files
+- Turn turbo mode off automatically when the extra CPU model fails to load
+- Hide the live recording mode, too experimental
+
 1.0.3
 -----
 - Improve UI (move status cards down, add file name in status bar)
