@@ -19,7 +19,7 @@ include(FetchContent)
 FetchContent_Declare(
     whisper_cpp
     GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
-    GIT_TAG        f53dc74843e97f19f94a79241357f74ad5b691a6
+    GIT_TAG        080bbbe85230f624f0b52127f1ae1218247989f9
     PATCH_COMMAND  git apply ${CMAKE_CURRENT_SOURCE_DIR}/whisper.patches
 )
 FetchContent_GetProperties(whisper_cpp)
@@ -83,6 +83,32 @@ if(NOT vulkan_hpp_POPULATED)
     FetchContent_Populate(vulkan_hpp)
 endif()
 include_directories(${vulkan_hpp_SOURCE_DIR})
+
+# Fetch SPIR-V Headers required by ggml-vulkan.
+# Upstream ggml-vulkan.cpp includes <spirv/unified1/spirv.hpp> (used by its runtime
+# RoundingModeRTE SPIR-V patcher), and ggml-vulkan/CMakeLists.txt does
+# `find_package(SPIRV-Headers CONFIG REQUIRED)` purely as a presence guard (the target
+# is never linked). The NDK sysroot ships neither, so we vendor the headers (source
+# only) and satisfy the guard with a stub config. Tag matches the Vulkan-Hpp SDK above.
+FetchContent_Declare(
+    spirv_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Headers.git
+    GIT_TAG        vulkan-sdk-1.3.275.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_GetProperties(spirv_headers)
+if(NOT spirv_headers_POPULATED)
+    FetchContent_Populate(spirv_headers)
+endif()
+# Put <spirv/unified1/spirv.hpp> on the compiler include path
+include_directories(${spirv_headers_SOURCE_DIR}/include)
+
+# Satisfy `find_package(SPIRV-Headers CONFIG REQUIRED)` on any CMake version. FetchContent
+# only auto-redirects find_package on CMake >= 3.24 (this project pins 3.22.1), so we point
+# SPIRV-Headers_DIR at a minimal found-config. Safe because the target is never consumed.
+set(_spirv_headers_shim "${CMAKE_BINARY_DIR}/spirv-headers-shim")
+file(WRITE "${_spirv_headers_shim}/SPIRV-HeadersConfig.cmake" "set(SPIRV-Headers_FOUND TRUE)\n")
+set(SPIRV-Headers_DIR "${_spirv_headers_shim}" CACHE PATH "" FORCE)
 
 function(build_library target_name)
     add_library(

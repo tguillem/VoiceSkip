@@ -1,7 +1,7 @@
-From 5e0513d9bd39b0ae94a13f9b849a8f6a99cf3af9 Mon Sep 17 00:00:00 2001
+From 31b99270009a8c11de85b950e2390c05e02ab5c6 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Fri, 2 Jan 2026 17:33:08 +0100
-Subject: [PATCH 01/21] vulkan: use VkPhysicalDeviceSubgroupProperties
+Subject: [PATCH 01/22] vulkan: use VkPhysicalDeviceSubgroupProperties
 
 Instead of VkPhysicalDeviceVulkan11Properties, that was added in Vulkan 1.2.
 
@@ -12,10 +12,10 @@ as the corresponding members of ... VkPhysicalDeviceSubgroupProperties ..."
  1 file changed, 12 insertions(+), 12 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index deed5055..ec6611c2 100644
+index a483d22c..ca90c2fb 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -4681,26 +4681,26 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5975,31 +5975,31 @@ static vk_device ggml_vk_get_device(size_t idx) {
          }
          device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
  
@@ -35,10 +35,15 @@ index deed5055..ec6611c2 100644
  #endif
 -        device->subgroup_shuffle = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
 -                                   (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
--        device->subgroup_clustered = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                     (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
 +        device->subgroup_shuffle = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
 +                                   (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
+ #ifdef __APPLE__
+         if (device->vendor_id == VK_VENDOR_ID_AMD) {
+             device->subgroup_shuffle = false;
+         }
+ #endif
+-        device->subgroup_clustered = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
+-                                     (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
 +        device->subgroup_clustered = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
 +                                     (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
  
@@ -52,15 +57,16 @@ index deed5055..ec6611c2 100644
 +        device->subgroup_vote = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
 +                                (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eVote);
  
-         const bool force_disable_f16 = getenv("GGML_VK_DISABLE_F16") != nullptr;
- 
+         // Submit at least every 100 nodes, in case there are workloads without as much matmul.
+         device->max_nodes_per_submit = 100;
 -- 
-2.47.2
+2.47.3
 
-From 76f8a0201a0e14cbb93cefe582bae90308d4e955 Mon Sep 17 00:00:00 2001
+
+From 37247652ac4b1b3245fbc7e64c4d81549fae7dbc Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:02:38 +0100
-Subject: [PATCH 02/21] vulkan: use VkPhysicalDeviceFloatControlsProperties on
+Subject: [PATCH 02/22] vulkan: use VkPhysicalDeviceFloatControlsProperties on
  Vulkan 1.1
 
 "The members of VkPhysicalDeviceVulkan12Properties must have the same
@@ -71,10 +77,10 @@ VkPhysicalDeviceFloatControlsProperties ..."
  1 file changed, 26 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index ec6611c2..49b268ea 100644
+index ca90c2fb..09329166 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -4483,6 +4483,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5767,6 +5767,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
          device->physical_device = physical_devices[dev_num];
          const std::vector<vk::ExtensionProperties> ext_props = device->physical_device.enumerateDeviceExtensionProperties();
  
@@ -84,15 +90,15 @@ index ec6611c2..49b268ea 100644
          device->architecture = get_device_architecture(device->physical_device);
  
          const char* GGML_VK_PREFER_HOST_MEMORY = getenv("GGML_VK_PREFER_HOST_MEMORY");
-@@ -4509,6 +4512,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device->integer_dot_product = false;
+@@ -5795,6 +5798,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
          device->shader_64b_indexing = false;
          bool bfloat16_support = false;
+         bool dot2_f16_support = false;
 +        bool shader_float_controls_khr = false;
  
          for (const auto& properties : ext_props) {
              if (strcmp("VK_KHR_maintenance4", properties.extensionName) == 0) {
-@@ -4559,6 +4563,8 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5851,6 +5855,8 @@ static vk_device ggml_vk_get_device(size_t idx) {
              } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
                  device->shader_64b_indexing = true;
  #endif
@@ -101,7 +107,7 @@ index ec6611c2..49b268ea 100644
              }
          }
  
-@@ -4571,6 +4577,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5863,6 +5869,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
          vk::PhysicalDeviceShaderCoreProperties2AMD amd_shader_core_properties2_props;
          vk::PhysicalDeviceVulkan11Properties vk11_props;
          vk::PhysicalDeviceVulkan12Properties vk12_props;
@@ -109,7 +115,7 @@ index ec6611c2..49b268ea 100644
          vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_props;
          vk::PhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_props;
          vk::PhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_props;
-@@ -4578,10 +4585,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5870,10 +5877,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
          props2.pNext = &props3;
          props3.pNext = &subgroup_props;
          subgroup_props.pNext = &driver_props;
@@ -134,7 +140,7 @@ index ec6611c2..49b268ea 100644
  
          if (maintenance4_support) {
              last_struct->pNext = (VkBaseOutStructure *)&props4;
-@@ -4679,7 +4697,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5973,7 +5991,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
          } else {
              device->shader_core_count = 0;
          }
@@ -148,12 +154,13 @@ index ec6611c2..49b268ea 100644
          device->subgroup_basic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
                                   (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
 -- 
-2.47.2
+2.47.3
 
-From e18bd369b92e4a405914c8e70043f3a3db233a8d Mon Sep 17 00:00:00 2001
+
+From 4244adf347a31ca5a6fb5ec0eb5a40d0577a9be4 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:25:42 +0100
-Subject: [PATCH 03/21] vulkan: use individual features structures on Vulkan
+Subject: [PATCH 03/22] vulkan: use individual features structures on Vulkan
  1.1
 
 ---
@@ -161,10 +168,10 @@ Subject: [PATCH 03/21] vulkan: use individual features structures on Vulkan
  1 file changed, 150 insertions(+), 17 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 49b268ea..a7a3f208 100644
+index 09329166..539ddde1 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -4502,6 +4502,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5786,6 +5786,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
  
          bool fp16_storage = false;
          bool fp16_compute = false;
@@ -172,10 +179,10 @@ index 49b268ea..a7a3f208 100644
          bool maintenance4_support = false;
          bool sm_builtins = false;
          bool amd_shader_core_properties2 = false;
-@@ -4512,13 +4513,19 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device->integer_dot_product = false;
+@@ -5798,13 +5799,19 @@ static vk_device ggml_vk_get_device(size_t idx) {
          device->shader_64b_indexing = false;
          bool bfloat16_support = false;
+         bool dot2_f16_support = false;
 +        bool buffer_device_address_khr = false;
 +        bool timeline_semaphore_khr = false;
 +        bool vulkan_memory_model_khr = false;
@@ -192,7 +199,7 @@ index 49b268ea..a7a3f208 100644
              } else if (strcmp("VK_KHR_shader_float16_int8", properties.extensionName) == 0) {
                  fp16_compute = true;
              } else if (strcmp("VK_NV_shader_sm_builtins", properties.extensionName) == 0) {
-@@ -4563,11 +4570,27 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5855,11 +5862,27 @@ static vk_device ggml_vk_get_device(size_t idx) {
              } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
                  device->shader_64b_indexing = true;
  #endif
@@ -220,7 +227,7 @@ index 49b268ea..a7a3f208 100644
          vk::PhysicalDeviceProperties2 props2;
          vk::PhysicalDeviceMaintenance3Properties props3;
          vk::PhysicalDeviceMaintenance4Properties props4;
-@@ -4765,17 +4788,78 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6075,17 +6098,78 @@ static vk_device ggml_vk_get_device(size_t idx) {
          device_features2.pNext = nullptr;
          device_features2.features = (VkPhysicalDeviceFeatures)device_features;
  
@@ -239,11 +246,7 @@ index 49b268ea..a7a3f208 100644
 +        VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features {};
 +        VkPhysicalDeviceVulkanMemoryModelFeatures vulkan_memory_model_features {};
 +        VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features {};
- 
--        VkPhysicalDeviceVulkan12Features vk12_features;
--        vk12_features.pNext = nullptr;
--        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
--        vk11_features.pNext = &vk12_features;
++
 +        if (device_is_vulkan_12) {
 +            // Use vk11 and vk12 features structures
 +            vk11_features.pNext = nullptr;
@@ -268,8 +271,7 @@ index 49b268ea..a7a3f208 100644
 +                last_struct->pNext = (VkBaseOutStructure *)&storage_8bit_features;
 +                last_struct = (VkBaseOutStructure *)&storage_8bit_features;
 +            }
- 
--        last_struct = (VkBaseOutStructure *)&vk12_features;
++
 +            if (fp16_compute) {
 +                float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
 +                float16_int8_features.pNext = nullptr;
@@ -290,14 +292,19 @@ index 49b268ea..a7a3f208 100644
 +                last_struct->pNext = (VkBaseOutStructure *)&descriptor_indexing_features;
 +                last_struct = (VkBaseOutStructure *)&descriptor_indexing_features;
 +            }
-+
+ 
+-        VkPhysicalDeviceVulkan12Features vk12_features;
+-        vk12_features.pNext = nullptr;
+-        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+-        vk11_features.pNext = &vk12_features;
 +            if (vulkan_memory_model_khr) {
 +                vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES;
 +                vulkan_memory_model_features.pNext = nullptr;
 +                last_struct->pNext = (VkBaseOutStructure *)&vulkan_memory_model_features;
 +                last_struct = (VkBaseOutStructure *)&vulkan_memory_model_features;
 +            }
-+
+ 
+-        last_struct = (VkBaseOutStructure *)&vk12_features;
 +            if (timeline_semaphore_khr) {
 +                timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
 +                timeline_semaphore_features.pNext = nullptr;
@@ -308,7 +315,7 @@ index 49b268ea..a7a3f208 100644
  
          VkPhysicalDevicePipelineRobustnessFeaturesEXT pl_robustness_features;
          pl_robustness_features.pNext = nullptr;
-@@ -4883,9 +4967,29 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6209,9 +6293,29 @@ static vk_device ggml_vk_get_device(size_t idx) {
  
          vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
  
@@ -339,7 +346,7 @@ index 49b268ea..a7a3f208 100644
  
  #if defined(VK_KHR_shader_bfloat16)
          device->bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
-@@ -4895,13 +4999,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6223,13 +6327,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
  
          device->pipeline_robustness = pl_robustness_features.pipelineRobustness;
  
@@ -356,7 +363,7 @@ index 49b268ea..a7a3f208 100644
  
          if (device->subgroup_size_control) {
              device->subgroup_min_size = subgroup_size_control_props.minSubgroupSize;
-@@ -4933,7 +5037,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6257,7 +6361,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
                  coopmat2_features.cooperativeMatrixPerElementOperations &&
                  coopmat2_features.cooperativeMatrixTensorAddressing &&
                  coopmat2_features.cooperativeMatrixBlockLoads &&
@@ -365,7 +372,7 @@ index 49b268ea..a7a3f208 100644
  
                  std::vector<VkCooperativeMatrixFlexibleDimensionsPropertiesNV> flexible_dimensions;
                  uint32_t count = 0;
-@@ -5000,12 +5104,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6351,12 +6455,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
  #endif
          }
  
@@ -390,7 +397,7 @@ index 49b268ea..a7a3f208 100644
  
  #ifdef GGML_VULKAN_VALIDATE
          device_extensions.push_back("VK_KHR_shader_non_semantic_info");
-@@ -5015,6 +5129,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6366,6 +6480,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
              device_extensions.push_back("VK_KHR_shader_float16_int8");
          }
  
@@ -413,7 +420,7 @@ index 49b268ea..a7a3f208 100644
  #if defined(VK_KHR_cooperative_matrix)
          if (device->coopmat_support) {
              // Query supported shapes
-@@ -5200,7 +5330,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6568,7 +6698,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
          vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info(
              {},
              dsl_binding);
@@ -426,22 +433,23 @@ index 49b268ea..a7a3f208 100644
  
          ggml_vk_load_shaders(device);
 -- 
-2.47.2
+2.47.3
 
-From c613b87ad4f73454143b88693de63c674b56848d Mon Sep 17 00:00:00 2001
+
+From 908e57837fbf0976514e9263a26260248dca47f0 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:29:31 +0100
-Subject: [PATCH 04/21] vulkan: use pfn_vkGetBufferDeviceAddress on Vulkan 1.1
+Subject: [PATCH 04/22] vulkan: use pfn_vkGetBufferDeviceAddress on Vulkan 1.1
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 20 ++++++++++++++++++--
  1 file changed, 18 insertions(+), 2 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index a7a3f208..38b4c3d9 100644
+index 539ddde1..5fc8b30c 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -585,6 +585,8 @@ struct vk_device_struct {
+@@ -704,6 +704,8 @@ struct vk_device_struct {
      bool multi_add;
      bool shader_int64;
      bool buffer_device_address;
@@ -450,7 +458,7 @@ index a7a3f208..38b4c3d9 100644
      bool vulkan_memory_model;
  
      bool add_rms_fusion;
-@@ -2585,8 +2587,13 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
+@@ -3229,8 +3231,13 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
      buf->size = size;
  
      if (device->buffer_device_address) {
@@ -466,7 +474,7 @@ index a7a3f208..38b4c3d9 100644
      }
  
      device->memory_logger->log_allocation(buf, size);
-@@ -5268,6 +5275,15 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6617,6 +6624,15 @@ static vk_device ggml_vk_get_device(size_t idx) {
          device_create_info.setPNext(&device_features2);
          device->device = device->physical_device.createDevice(device_create_info);
  
@@ -483,12 +491,13 @@ index a7a3f208..38b4c3d9 100644
          ggml_vk_create_queue(device, device->compute_queue, compute_queue_family_index, 0, { vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer }, false);
  
 -- 
-2.47.2
+2.47.3
 
-From 7bb0b9713e91a6b5feda39fc7bcadabc2f5268df Mon Sep 17 00:00:00 2001
+
+From 4fa38b70c326d4fa454d8d9b6dc59dc1e9abb107 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:05:09 +0100
-Subject: [PATCH 05/21] vulkan: handle Vulkan 1.1 in ggml_vk_print_gpu_info()
+Subject: [PATCH 05/22] vulkan: handle Vulkan 1.1 in ggml_vk_print_gpu_info()
 
 Use VkPhysicalDeviceShaderFloat16Int8Features on Vulkan 1.1
 ---
@@ -496,10 +505,10 @@ Use VkPhysicalDeviceShaderFloat16Int8Features on Vulkan 1.1
  1 file changed, 23 insertions(+), 11 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 38b4c3d9..7d48d6b1 100644
+index 5fc8b30c..855957ae 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -5447,6 +5447,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+@@ -6834,6 +6834,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
  
      const vk_device_architecture device_architecture = get_device_architecture(physical_device);
  
@@ -509,7 +518,7 @@ index 38b4c3d9..7d48d6b1 100644
      const char* GGML_VK_DISABLE_F16 = getenv("GGML_VK_DISABLE_F16");
      bool force_disable_f16 = GGML_VK_DISABLE_F16 != nullptr;
  
-@@ -5475,18 +5478,26 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+@@ -6862,18 +6865,26 @@ static void ggml_vk_print_gpu_info(size_t idx) {
      device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
      device_features2.pNext = nullptr;
  
@@ -546,7 +555,7 @@ index 38b4c3d9..7d48d6b1 100644
  
  #if defined(GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
      VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopmat_features;
-@@ -5518,7 +5529,8 @@ static void ggml_vk_print_gpu_info(size_t idx) {
+@@ -6928,7 +6939,8 @@ static void ggml_vk_print_gpu_info(size_t idx) {
  
      vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
  
@@ -557,12 +566,13 @@ index 38b4c3d9..7d48d6b1 100644
  #if defined(VK_KHR_shader_bfloat16)
      bool bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
 -- 
-2.47.2
+2.47.3
 
-From 3cac3937571667d54cdf7a50a38b43621a0d4975 Mon Sep 17 00:00:00 2001
+
+From d4af78f3ed3d4ffe11f62036be5a92b125173670 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:21:06 +0100
-Subject: [PATCH 06/21] vulkan: handle Vulkan 1.1 in
+Subject: [PATCH 06/22] vulkan: handle Vulkan 1.1 in
  ggml_vk_device_is_supported()
 
 Check required exstensions when using Vulkan 1.1 and use
@@ -572,10 +582,10 @@ VkPhysicalDevice16BitStorageFeatures
  1 file changed, 35 insertions(+), 5 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 7d48d6b1..c1fd458f 100644
+index 855957ae..daf81ef0 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -15343,17 +15343,47 @@ static bool ggml_vk_instance_debug_utils_ext_available(
+@@ -18194,17 +18194,47 @@ static bool ggml_vk_instance_debug_utils_ext_available(
  }
  
  static bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
@@ -629,22 +639,23 @@ index 7d48d6b1..c1fd458f 100644
  
  static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDeviceProperties& props, const vk::PhysicalDeviceDriverProperties& driver_props, vk_device_architecture arch) {
 -- 
-2.47.2
+2.47.3
 
-From 95fa09250dc01797b12df2293c0699dc6195edb0 Mon Sep 17 00:00:00 2001
+
+From 0b51095296d601aa9b35a43bb3678475f2a813d6 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:29:50 +0100
-Subject: [PATCH 07/21] vulkan: lower API requirement to 1.1
+Subject: [PATCH 07/22] vulkan: lower API requirement to 1.1
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 6 +++---
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index c1fd458f..bedeca89 100644
+index daf81ef0..633e5ea1 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -5585,9 +5585,9 @@ static void ggml_vk_instance_init() {
+@@ -7018,9 +7018,9 @@ static void ggml_vk_instance_init() {
  
      uint32_t api_version = vk::enumerateInstanceVersion();
  
@@ -658,12 +669,13 @@ index c1fd458f..bedeca89 100644
  
      vk::ApplicationInfo app_info{ "ggml-vulkan", 1, nullptr, 0, api_version };
 -- 
-2.47.2
+2.47.3
 
-From b95296c4e082de5712abba1fa1393f20fe2fbefa Mon Sep 17 00:00:00 2001
+
+From 60277cb612470333decde509f90d1ad5bf0455bc Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 13:25:52 +0100
-Subject: [PATCH 08/21] vulkan: add 1.1 shader compatibility mode
+Subject: [PATCH 08/22] vulkan: add 1.1 shader compatibility mode
 
 if GGML_VULKAN_MIN_1_1 is defined:
 
@@ -673,18 +685,17 @@ if GGML_VULKAN_MIN_1_1 is defined:
 
 No changes if GGML_VULKAN_MIN_1_1 is not defined (default).
 ---
- ggml/CMakeLists.txt                           |  1 +
- ggml/src/ggml-vulkan/CMakeLists.txt           |  5 ++++
- .../ggml-vulkan/vulkan-shaders/CMakeLists.txt |  3 ++
- ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl  |  6 +++-
- .../vulkan-shaders/vulkan-shaders-gen.cpp     | 29 +++++++++++++++++--
- 5 files changed, 41 insertions(+), 3 deletions(-)
+ ggml/CMakeLists.txt                                    |  1 +
+ ggml/src/ggml-vulkan/CMakeLists.txt                    |  5 +++++
+ ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt     |  3 +++
+ .../ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp  | 10 +++++++++-
+ 4 files changed, 18 insertions(+), 1 deletion(-)
 
 diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
-index 0176ca1c..4c8b45f1 100644
+index 0470e3e2..030349f3 100644
 --- a/ggml/CMakeLists.txt
 +++ b/ggml/CMakeLists.txt
-@@ -222,6 +222,7 @@ option(GGML_VULKAN_MEMORY_DEBUG             "ggml: enable Vulkan memory debug ou
+@@ -228,6 +228,7 @@ option(GGML_VULKAN_MEMORY_DEBUG             "ggml: enable Vulkan memory debug ou
  option(GGML_VULKAN_SHADER_DEBUG_INFO        "ggml: enable Vulkan shader debug info"           OFF)
  option(GGML_VULKAN_VALIDATE                 "ggml: enable Vulkan validation"                  OFF)
  option(GGML_VULKAN_RUN_TESTS                "ggml: run Vulkan tests"                          OFF)
@@ -693,10 +704,10 @@ index 0176ca1c..4c8b45f1 100644
  option(GGML_WEBGPU_DEBUG                    "ggml: enable WebGPU debug output"                OFF)
  option(GGML_WEBGPU_CPU_PROFILE              "ggml: enable WebGPU profiling (CPU)"             OFF)
 diff --git a/ggml/src/ggml-vulkan/CMakeLists.txt b/ggml/src/ggml-vulkan/CMakeLists.txt
-index de01336c..b5a5d816 100644
+index 5aeb6e97..70d64c37 100644
 --- a/ggml/src/ggml-vulkan/CMakeLists.txt
 +++ b/ggml/src/ggml-vulkan/CMakeLists.txt
-@@ -112,6 +112,11 @@ if (Vulkan_FOUND)
+@@ -126,6 +126,11 @@ if (Vulkan_FOUND)
          list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_SHADER_DEBUG_INFO=ON)
      endif()
  
@@ -709,10 +720,10 @@ index de01336c..b5a5d816 100644
          add_compile_definitions(GGML_VULKAN_VALIDATE)
      endif()
 diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
-index e1f613fb..393d21b3 100644
+index 10a9ea21..d68c20d8 100644
 --- a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
 +++ b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
-@@ -23,6 +23,9 @@ if (GGML_VULKAN_SHADER_DEBUG_INFO)
+@@ -27,6 +27,9 @@ if (GGML_VULKAN_SHADER_DEBUG_INFO)
      add_compile_definitions(GGML_VULKAN_SHADER_DEBUG_INFO)
      message(STATUS "Enabling shader debug info")
  endif()
@@ -722,92 +733,45 @@ index e1f613fb..393d21b3 100644
  
  set(TARGET vulkan-shaders-gen)
  add_executable(${TARGET} vulkan-shaders-gen.cpp)
-diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl b/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
-index ad51c1e8..ce7ac8d8 100644
---- a/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
-+++ b/ggml/src/ggml-vulkan/vulkan-shaders/rte.glsl
-@@ -1,5 +1,9 @@
- 
- #if RTE16
- #extension GL_EXT_spirv_intrinsics : enable
--spirv_execution_mode(capabilities = [4467], 4462, 16); // RoundingModeRTE, 16 bits
-+spirv_execution_mode(
-+#ifdef VULKAN11_RTE
-+    extensions = ["SPV_KHR_float_controls"],
-+#endif
-+    capabilities = [4467], 4462, 16); // RoundingModeRTE, 16 bits
- #endif // RTE16
 diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-index bbdbf9dc..f809658b 100644
+index 1925582f..efc2e123 100644
 --- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
 +++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-@@ -322,7 +322,21 @@ compile_count_guard acquire_compile_slot() {
+@@ -334,7 +334,15 @@ compile_count_guard acquire_compile_slot() {
  }
  
  void string_to_spv_func(std::string name, std::string in_path, std::string out_path, std::map<std::string, std::string> defines, bool coopmat, bool dep_file, compile_count_guard slot) {
 -    std::string target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
 +    std::string target_env;
-+    bool is_vulkan11;
 +#ifdef GGML_VULKAN_MIN_1_1
-+    // Vulkan 1.1 compatibility mode
-+    if (name.find("_cm2") != std::string::npos) {
-+        target_env = "--target-env=vulkan1.3";
-+        is_vulkan11 = false;
-+    } else {
-+        target_env = "--target-env=vulkan1.1";
-+        is_vulkan11 = true;
-+    }
++    // Vulkan 1.1 compatibility mode: build all non-_cm2 shaders with the 1.1 target.
++    // (RoundingModeRTE is injected into the SPIR-V at pipeline-creation time upstream, so
++    //  no compile-time RTE handling is needed here anymore.)
++    target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.1";
 +#else
 +    target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
-+    is_vulkan11 = false;
 +#endif
  
      #ifdef _WIN32
          std::vector<std::string> cmd = {GLSLC, "-fshader-stage=compute", target_env, "\"" + in_path + "\"", "-o", "\"" + out_path + "\""};
-@@ -333,7 +347,13 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
-     // disable spirv-opt for coopmat shaders for https://github.com/ggerganov/llama.cpp/issues/10734
-     // disable spirv-opt for bf16 shaders for https://github.com/ggml-org/llama.cpp/issues/15344
-     // disable spirv-opt for rope shaders for https://github.com/ggml-org/llama.cpp/issues/16860
--    if (!coopmat && name.find("bf16") == std::string::npos && name.find("rope") == std::string::npos) {
-+    // disable spirv-opt for RTE shaders with vulkan1.1: spirv-opt rejects RoundingModeRTE with vulkan1.1 target
-+    bool has_rte = (name.find("_rte") != std::string::npos) ||
-+                   (defines.find("RTE16") != defines.end() && defines.at("RTE16") == "1");
-+    if (!coopmat &&
-+        name.find("bf16") == std::string::npos &&
-+        name.find("rope") == std::string::npos &&
-+        !(has_rte && is_vulkan11)) {
-         cmd.push_back("-O");
-     }
- 
-@@ -351,6 +371,11 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
-         cmd.push_back("-g");
-     #endif
- 
-+    // Need SPV_KHR_float_controls extension for Vulkan 1.1 RTE shaders
-+    if (is_vulkan11 && has_rte) {
-+        cmd.push_back("-DVULKAN11_RTE=1");
-+    }
-+
-     for (const auto& define : defines) {
-         cmd.push_back("-D" + define.first + "=" + define.second);
-     }
 -- 
-2.47.2
+2.47.3
 
-From 00c801d9743ec186deb75fec782eb9f567f151f1 Mon Sep 17 00:00:00 2001
+
+From 9d5528de3b68b6edd4c6dce01083c4435b9f1581 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:22:23 +0100
-Subject: [PATCH 09/21] vulkan: propagate pipeline failure
+Subject: [PATCH 09/22] vulkan: propagate pipeline failure
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 17 +++++++++++++++++
  1 file changed, 17 insertions(+)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index bedeca89..7870c281 100644
+index 633e5ea1..f7b9ef0c 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -1803,6 +1803,9 @@ struct ggml_backend_vk_context {
+@@ -2127,6 +2127,9 @@ struct ggml_backend_vk_context {
      // and set to true after the buffer contents are consumed.
      bool prealloc_x_need_sync, prealloc_y_need_sync, prealloc_split_k_need_sync;
  
@@ -815,9 +779,9 @@ index bedeca89..7870c281 100644
 +    std::atomic<bool> compute_failed {};
 +
      vk_context_ref compute_ctx;
-     vk_context_ref transfer_ctx;
  
-@@ -6322,6 +6325,12 @@ template <typename T, uint32_t N> const T *push_constant_data(const std::array<T
+     vk_context_ref transfer_ctx;
+@@ -7801,6 +7804,12 @@ template <typename T, uint32_t N> const T *push_constant_data(const std::array<T
  
  template <typename T>
  static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& subctx, vk_pipeline& pipeline, std::initializer_list<vk::DescriptorBufferInfo> const& descriptor_buffer_infos, const T &push_constants, std::array<uint32_t, 3> elements) {
@@ -830,7 +794,7 @@ index bedeca89..7870c281 100644
      const uint32_t wg0 = CEIL_DIV(elements[0], pipeline->wg_denoms[0]);
      const uint32_t wg1 = CEIL_DIV(elements[1], pipeline->wg_denoms[1]);
      const uint32_t wg2 = CEIL_DIV(elements[2], pipeline->wg_denoms[2]);
-@@ -13824,6 +13833,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+@@ -16425,6 +16434,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
      ctx->prealloc_size_add_rms_partials_offset = 0;
      ctx->do_add_rms_partials = false;
      ctx->do_add_rms_partials_offset_calculation = false;
@@ -838,9 +802,9 @@ index bedeca89..7870c281 100644
  
      int last_node = cgraph->n_nodes - 1;
  
-@@ -13898,6 +13908,10 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
-     uint64_t total_mul_mat_bytes = 0;
-     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
+@@ -16505,6 +16515,10 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+     uint64_t flops_per_submit = std::min(flops_cap, ctx->last_total_flops / 40u);
+ 
      for (int i = 0; i < cgraph->n_nodes; i++) {
 +        if (ctx->compute_failed) {
 +            break;
@@ -849,7 +813,7 @@ index bedeca89..7870c281 100644
          if (first_node_in_batch) {
              submit_node_idx = i;
          }
-@@ -14094,6 +14108,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+@@ -16819,6 +16833,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
          ggml_vk_synchronize(ctx);
      }
  
@@ -860,12 +824,13 @@ index bedeca89..7870c281 100644
  
      UNUSED(backend);
 -- 
-2.47.2
+2.47.3
 
-From 91d2a852b3fb09df0397cdc7dc8167aba6552b47 Mon Sep 17 00:00:00 2001
+
+From ffa3c3a98117020e79b334a160c0915905009a1d Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Thu, 22 Jan 2026 14:38:57 +0100
-Subject: [PATCH 10/21] vulkan: low priority on android
+Subject: [PATCH 10/22] vulkan: low priority on android
 
 Prevent UI lag (a little).
 ---
@@ -873,10 +838,10 @@ Prevent UI lag (a little).
  1 file changed, 34 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 7870c281..ef311363 100644
+index f7b9ef0c..a032e9b2 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -588,6 +588,7 @@ struct vk_device_struct {
+@@ -707,6 +707,7 @@ struct vk_device_struct {
      // Not needed for Vulkan 1.2+ where it's a core function
      PFN_vkGetBufferDeviceAddressKHR pfn_vkGetBufferDeviceAddress = nullptr;
      bool vulkan_memory_model;
@@ -884,7 +849,7 @@ index 7870c281..ef311363 100644
  
      bool add_rms_fusion;
      uint32_t partials_binding_alignment;
-@@ -4591,6 +4592,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5883,6 +5884,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
              } else if (strcmp("VK_EXT_descriptor_indexing", properties.extensionName) == 0) {
                  descriptor_indexing_ext = true;
              }
@@ -896,7 +861,7 @@ index 7870c281..ef311363 100644
          }
  
          if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
-@@ -4780,14 +4786,34 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6090,14 +6096,34 @@ static vk_device ggml_vk_get_device(size_t idx) {
          const float priorities[] = { 1.0f, 1.0f };
          device->single_queue = compute_queue_family_index == transfer_queue_family_index && queue_family_props[compute_queue_family_index].queueCount == 1;
  
@@ -933,9 +898,9 @@ index 7870c281..ef311363 100644
 +            }
 +            device_queue_create_infos.push_back(queue_info);
          }
-         vk::DeviceCreateInfo device_create_info;
+         vk::DeviceCreateInfo device_create_info{};
          std::vector<const char *> device_extensions;
-@@ -4965,6 +4991,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6291,6 +6317,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
              device_extensions.push_back("VK_EXT_external_memory_host");
          }
  
@@ -947,12 +912,13 @@ index 7870c281..ef311363 100644
          VkPhysicalDeviceShader64BitIndexingFeaturesEXT shader_64bit_indexing_features {};
          shader_64bit_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_64_BIT_INDEXING_FEATURES_EXT;
 -- 
-2.47.2
+2.47.3
 
-From a23cb54293194cb0ba4cd29a7dea208ae4dad46c Mon Sep 17 00:00:00 2001
+
+From ecfb9f40ebd2f4fabd60bcd0c4e6ed9394694f5a Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:45 +0100
-Subject: [PATCH 11/21] vulkan: don't throw an exception when init fails
+Subject: [PATCH 11/22] vulkan: don't throw an exception when init fails
 
 Print error and fallback to CPU instead.
 ---
@@ -960,19 +926,19 @@ Print error and fallback to CPU instead.
  1 file changed, 33 insertions(+), 7 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index ef311363..cbd88d50 100644
+index a032e9b2..10676a83 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -550,6 +550,8 @@ static constexpr std::initializer_list<std::array<int, 3>> rms_norm_mul_rope_vie
- struct vk_device_struct {
-     std::recursive_mutex mutex;
+@@ -668,6 +668,8 @@ struct vk_device_struct {
+     std::mutex compile_mutex;
+     std::condition_variable compile_cv;
  
 +    bool initialization_failed = false;
 +
      vk::PhysicalDevice physical_device;
      vk::PhysicalDeviceProperties properties;
      std::string name;
-@@ -4487,8 +4489,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5771,8 +5773,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
          std::vector<vk::PhysicalDevice> physical_devices = vk_instance.instance.enumeratePhysicalDevices();
  
          if (dev_num >= physical_devices.size()) {
@@ -984,7 +950,7 @@ index ef311363..cbd88d50 100644
          }
  
          device->physical_device = physical_devices[dev_num];
-@@ -4600,11 +4603,14 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5892,11 +5895,14 @@ static vk_device ggml_vk_get_device(size_t idx) {
          }
  
          if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
@@ -1001,7 +967,7 @@ index ef311363..cbd88d50 100644
          }
  
          vk::PhysicalDeviceProperties2 props2;
-@@ -5313,7 +5319,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6662,7 +6668,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
                  vkGetDeviceProcAddr(device->device, "vkGetBufferDeviceAddressKHR");
  
              if (!device->pfn_vkGetBufferDeviceAddress) {
@@ -1012,7 +978,7 @@ index ef311363..cbd88d50 100644
              }
          }
  
-@@ -5424,7 +5432,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6803,7 +6811,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
          return device;
      }
  
@@ -1025,7 +991,7 @@ index ef311363..cbd88d50 100644
  }
  
  static void ggml_vk_print_gpu_info(size_t idx) {
-@@ -5849,6 +5861,9 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
+@@ -7298,6 +7310,9 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
      ctx->name = GGML_VK_NAME + std::to_string(idx);
  
      ctx->device = ggml_vk_get_device(idx);
@@ -1035,7 +1001,7 @@ index ef311363..cbd88d50 100644
  
      ctx->semaphore_idx = 0;
      ctx->event_idx = 0;
-@@ -13184,6 +13199,9 @@ ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num) {
+@@ -15565,6 +15580,9 @@ ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num) {
      VK_LOG_DEBUG("ggml_backend_vk_buffer_type(" << dev_num << ")");
  
      vk_device dev = ggml_vk_get_device(dev_num);
@@ -1045,7 +1011,7 @@ index ef311363..cbd88d50 100644
  
      return &dev->buffer_type;
  }
-@@ -13259,7 +13277,10 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
+@@ -15634,7 +15652,10 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
  
      // Make sure device 0 is initialized
      ggml_vk_instance_init();
@@ -1057,7 +1023,7 @@ index ef311363..cbd88d50 100644
  
      return &ggml_backend_vk_buffer_type_host;
  }
-@@ -14465,6 +14486,11 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
+@@ -17211,6 +17232,11 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
      ggml_backend_vk_context * ctx = new ggml_backend_vk_context;
      ggml_vk_init(ctx, dev_num);
  
@@ -1070,22 +1036,23 @@ index ef311363..cbd88d50 100644
          /* .guid    = */ ggml_backend_vk_guid(),
          /* .iface   = */ ggml_backend_vk_interface,
 -- 
-2.47.2
+2.47.3
 
-From d4cb318d6288f41b25aff954666587765ae52513 Mon Sep 17 00:00:00 2001
+
+From 5d8c8536e7c8e5208b2a902d8b26429ec7028d3b Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Sat, 3 Jan 2026 18:34:00 +0100
-Subject: [PATCH 12/21] whisper: init prompt just in time
+Subject: [PATCH 12/22] whisper: init prompt just in time
 
 ---
  src/whisper.cpp | 42 +++++++++++++++++++++++++-----------------
  1 file changed, 25 insertions(+), 17 deletions(-)
 
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 796bccfb..805009c4 100644
+index 2a95bdb1..ca763928 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -6963,20 +6963,6 @@ int whisper_full_with_state(
+@@ -6971,20 +6971,6 @@ int whisper_full_with_state(
      }
      state->exp_n_audio_ctx = params.audio_ctx;
  
@@ -1106,7 +1073,7 @@ index 796bccfb..805009c4 100644
      // first release distilled models require the "no_timestamps" token
      {
          const bool is_distil = ctx->model.hparams.n_text_layer == 2 && ctx->model.hparams.n_vocab != 51866;
-@@ -6986,9 +6972,8 @@ int whisper_full_with_state(
+@@ -6994,9 +6980,8 @@ int whisper_full_with_state(
          }
      }
  
@@ -1118,7 +1085,7 @@ index 796bccfb..805009c4 100644
  
      int seek = seek_start;
  
-@@ -7042,6 +7027,29 @@ int whisper_full_with_state(
+@@ -7050,6 +7035,29 @@ int whisper_full_with_state(
              prompt_past1.clear();
          }
  
@@ -1149,12 +1116,13 @@ index 796bccfb..805009c4 100644
  
          for (int it = 0; it < (int) temperatures.size(); ++it) {
 -- 
-2.47.2
+2.47.3
 
-From 26856cfe80f202eb27904cd3d2d2d4a0029d2faf Mon Sep 17 00:00:00 2001
+
+From 8e57c5b5b8da087bbf5f6b9e8bfe0a7262ab8229 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:09 +0100
-Subject: [PATCH 13/21] whisper: add whisper_full_get_prompt_past
+Subject: [PATCH 13/22] whisper: add whisper_full_get_prompt_past
 
 ---
  include/whisper.h |  5 +++++
@@ -1162,12 +1130,12 @@ Subject: [PATCH 13/21] whisper: add whisper_full_get_prompt_past
  2 files changed, 16 insertions(+)
 
 diff --git a/include/whisper.h b/include/whisper.h
-index f4cc6bf7..48767be9 100644
+index 545084ef..530d8a34 100644
 --- a/include/whisper.h
 +++ b/include/whisper.h
-@@ -671,6 +671,11 @@ extern "C" {
-     WHISPER_API float whisper_full_get_token_p           (struct whisper_context * ctx, int i_segment, int i_token);
-     WHISPER_API float whisper_full_get_token_p_from_state(struct whisper_state * state, int i_segment, int i_token);
+@@ -692,6 +692,11 @@ extern "C" {
+     WHISPER_API int64_t whisper_full_get_vad_segment_t1           (struct whisper_context * ctx, int i);
+     WHISPER_API int64_t whisper_full_get_vad_segment_t1_from_state(struct whisper_state * state, int i);
  
 +    // Get the prompt context tokens (prompt_past1) for passing to subsequent whisper_full calls
 +    // Returns the number of tokens copied to tokens_out (up to max_tokens)
@@ -1178,10 +1146,10 @@ index f4cc6bf7..48767be9 100644
      // Voice Activity Detection (VAD)
      //
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 805009c4..36dbb3aa 100644
+index ca763928..a8e4347f 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -8075,6 +8075,17 @@ float whisper_full_get_token_p(struct whisper_context * ctx, int i_segment, int
+@@ -8179,6 +8179,17 @@ float whisper_full_get_token_p(struct whisper_context * ctx, int i_segment, int
      return ctx->state->result_all[i_segment].tokens[i_token].p;
  }
  
@@ -1200,12 +1168,13 @@ index 805009c4..36dbb3aa 100644
      return ctx->state->result_all[i_segment].no_speech_prob;
  }
 -- 
-2.47.2
+2.47.3
 
-From bb64e03be75d71eeb38dd5b783ecbe84806427d7 Mon Sep 17 00:00:00 2001
+
+From 6738ab144eb09d3a0eba222a5bc630038307998a Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:19 +0100
-Subject: [PATCH 14/21] whisper: add whisper_context_callback
+Subject: [PATCH 14/22] whisper: add whisper_context_callback
 
 ---
  include/whisper.h | 16 ++++++++++++++++
@@ -1213,7 +1182,7 @@ Subject: [PATCH 14/21] whisper: add whisper_context_callback
  2 files changed, 42 insertions(+), 1 deletion(-)
 
 diff --git a/include/whisper.h b/include/whisper.h
-index 48767be9..04f9168a 100644
+index 530d8a34..80917b7e 100644
 --- a/include/whisper.h
 +++ b/include/whisper.h
 @@ -481,6 +481,18 @@ extern "C" {
@@ -1247,10 +1216,10 @@ index 48767be9..04f9168a 100644
          size_t                           n_grammar_rules;
          size_t                           i_start_rule;
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 36dbb3aa..527fc4e3 100644
+index a8e4347f..bad2ef78 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -5980,6 +5980,9 @@ struct whisper_full_params whisper_full_default_params(enum whisper_sampling_str
+@@ -6003,6 +6003,9 @@ struct whisper_full_params whisper_full_default_params(enum whisper_sampling_str
          /*.logits_filter_callback           =*/ nullptr,
          /*.logits_filter_callback_user_data =*/ nullptr,
  
@@ -1260,7 +1229,7 @@ index 36dbb3aa..527fc4e3 100644
          /*.grammar_rules   =*/ nullptr,
          /*.n_grammar_rules =*/ 0,
          /*.i_start_rule    =*/ 0,
-@@ -6822,7 +6825,8 @@ int whisper_full_with_state(
+@@ -6830,7 +6833,8 @@ int whisper_full_with_state(
      }
  
      // auto-detect language if not specified
@@ -1270,7 +1239,7 @@ index 36dbb3aa..527fc4e3 100644
          std::vector<float> probs(whisper_lang_max_id() + 1, 0.0f);
  
          const auto lang_id = whisper_lang_auto_detect_with_state(ctx, state, 0, params.n_threads, probs.data());
-@@ -7031,6 +7035,24 @@ int whisper_full_with_state(
+@@ -7039,6 +7043,24 @@ int whisper_full_with_state(
          if (!prompt_init_built) {
              prompt_init_built = true;
  
@@ -1295,7 +1264,7 @@ index 36dbb3aa..527fc4e3 100644
              // these tokens determine the task that will be performed
              prompt_init.push_back(whisper_token_sot(ctx));
  
-@@ -7839,6 +7861,9 @@ int whisper_full_parallel(
+@@ -7855,6 +7877,9 @@ int whisper_full_parallel(
          params_cur.progress_callback = nullptr;
          params_cur.progress_callback_user_data = nullptr;
  
@@ -1306,12 +1275,13 @@ index 36dbb3aa..527fc4e3 100644
      }
  
 -- 
-2.47.2
+2.47.3
 
-From 8a1cd798b9dd29613e95b5d3ffbf237b60d5b8e2 Mon Sep 17 00:00:00 2001
+
+From d51cbfb8f59f9439aedf6794adaa258e53b2554f Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 17:25:57 +0100
-Subject: [PATCH 15/21] whisper: add whisper_set_vad_context
+Subject: [PATCH 15/22] whisper: add whisper_set_vad_context
 
 ---
  include/whisper.h |  7 +++++++
@@ -1319,10 +1289,10 @@ Subject: [PATCH 15/21] whisper: add whisper_set_vad_context
  2 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/include/whisper.h b/include/whisper.h
-index 04f9168a..b825bb31 100644
+index 80917b7e..3aefdd26 100644
 --- a/include/whisper.h
 +++ b/include/whisper.h
-@@ -739,6 +739,13 @@ extern "C" {
+@@ -770,6 +770,13 @@ extern "C" {
      WHISPER_API void whisper_vad_free_segments(struct whisper_vad_segments * segments);
      WHISPER_API void whisper_vad_free         (struct whisper_vad_context  * ctx);
  
@@ -1337,7 +1307,7 @@ index 04f9168a..b825bb31 100644
  
      // Temporary helpers needed for exposing ggml interface
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 527fc4e3..85a32ea5 100644
+index bad2ef78..97a9b006 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
 @@ -921,6 +921,7 @@ struct whisper_state {
@@ -1348,7 +1318,7 @@ index 527fc4e3..85a32ea5 100644
  
      struct vad_segment_info {
          int64_t orig_start;
-@@ -3835,7 +3836,7 @@ void whisper_free_state(struct whisper_state * state) {
+@@ -3849,7 +3850,7 @@ void whisper_free_state(struct whisper_state * state) {
          // [EXPERIMENTAL] Token-level timestamps with DTW
          aheads_masks_free(state->aheads_masks);
  
@@ -1357,7 +1327,7 @@ index 527fc4e3..85a32ea5 100644
              whisper_vad_free(state->vad_context);
              state->vad_context = nullptr;
          }
-@@ -5467,6 +5468,16 @@ void whisper_vad_free_segments(whisper_vad_segments * segments) {
+@@ -5490,6 +5491,16 @@ void whisper_vad_free_segments(whisper_vad_segments * segments) {
      }
  }
  
@@ -1375,22 +1345,23 @@ index 527fc4e3..85a32ea5 100644
  // Grammar - ported from llama.cpp
  //////////////////////////////////
 -- 
-2.47.2
+2.47.3
 
-From 3c9df3d36156b55bf62d0e8e098b406e65661660 Mon Sep 17 00:00:00 2001
+
+From 13b356f8b18647fe838266d0f94aede0a17c8989 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 12 Jan 2026 11:47:28 +0100
-Subject: [PATCH 16/21] whisper: clamp duration_ms to vad samples
+Subject: [PATCH 16/22] whisper: clamp duration_ms to vad samples
 
 ---
  src/whisper.cpp | 8 ++++++++
  1 file changed, 8 insertions(+)
 
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 85a32ea5..78ec6b4e 100644
+index 97a9b006..1a70c182 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -7813,6 +7813,10 @@ int whisper_full(
+@@ -7829,6 +7829,10 @@ int whisper_full(
          }
          samples = vad_samples.data();
          n_samples = vad_samples.size();
@@ -1401,7 +1372,7 @@ index 85a32ea5..78ec6b4e 100644
      }
      return whisper_full_with_state(ctx, ctx->state, params, samples, n_samples);
  }
-@@ -7840,6 +7844,10 @@ int whisper_full_parallel(
+@@ -7856,6 +7860,10 @@ int whisper_full_parallel(
          }
          samples = vad_samples.data();
          n_samples = vad_samples.size();
@@ -1413,22 +1384,23 @@ index 85a32ea5..78ec6b4e 100644
      int ret = 0;
  
 -- 
-2.47.2
+2.47.3
 
-From 22cd005b500e89ed4c1ef3005d71a0762cd0b723 Mon Sep 17 00:00:00 2001
+
+From 062a0cca13f36c7bbf1bb8a1e632aea8037450d8 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:11 +0100
-Subject: [PATCH 17/21] ggml-cpu: fix ggml_thread_apply_priority for Android
+Subject: [PATCH 17/22] ggml-cpu: fix ggml_thread_apply_priority for Android
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 25 +++++++++++++++++++++++++
  1 file changed, 25 insertions(+)
 
 diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
-index f7ba1fe3..03bc52e1 100644
+index a82842fc..138c6d39 100644
 --- a/ggml/src/ggml-cpu/ggml-cpu.c
 +++ b/ggml/src/ggml-cpu/ggml-cpu.c
-@@ -2573,6 +2573,30 @@ static bool ggml_thread_apply_affinity(const bool * mask) {
+@@ -2621,6 +2621,30 @@ static bool ggml_thread_apply_affinity(const bool * mask) {
  }
  
  static bool ggml_thread_apply_priority(int32_t prio) {
@@ -1459,7 +1431,7 @@ index f7ba1fe3..03bc52e1 100644
      struct sched_param p;
      int32_t policy = SCHED_OTHER;
      switch (prio) {
-@@ -2595,6 +2619,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
+@@ -2643,6 +2667,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
      }
  
      return true;
@@ -1468,12 +1440,13 @@ index f7ba1fe3..03bc52e1 100644
  
  #else // unsupported platforms
 -- 
-2.47.2
+2.47.3
 
-From aa1b9f99c28a93b51d8583f3b512e86cfe3141f9 Mon Sep 17 00:00:00 2001
+
+From 7ae4141e28b3d06db4d3f493d9b050e5d53679df Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:29 +0100
-Subject: [PATCH 18/21] ggml: default Realtime CPU
+Subject: [PATCH 18/22] ggml: default Realtime CPU
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 1 +
@@ -1481,10 +1454,10 @@ Subject: [PATCH 18/21] ggml: default Realtime CPU
  2 files changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
-index 03bc52e1..52b7aba8 100644
+index 138c6d39..5c46b453 100644
 --- a/ggml/src/ggml-cpu/ggml-cpu.c
 +++ b/ggml/src/ggml-cpu/ggml-cpu.c
-@@ -2592,6 +2592,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
+@@ -2640,6 +2640,7 @@ static bool ggml_thread_apply_priority(int32_t prio) {
  
      int err = setpriority(PRIO_PROCESS, 0, nice_value);
      if (err != 0) {
@@ -1493,10 +1466,10 @@ index 03bc52e1..52b7aba8 100644
      }
  
 diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
-index 09b8eb46..f8d8279b 100644
+index de0321d9..bae5691a 100644
 --- a/ggml/src/ggml.c
 +++ b/ggml/src/ggml.c
-@@ -7580,7 +7580,7 @@ void ggml_log_set(ggml_log_callback log_callback, void * user_data) {
+@@ -7818,7 +7818,7 @@ void ggml_log_set(ggml_log_callback log_callback, void * user_data) {
  
  void ggml_threadpool_params_init(struct ggml_threadpool_params * p, int n_threads) {
      p->n_threads  = n_threads;
@@ -1506,12 +1479,13 @@ index 09b8eb46..f8d8279b 100644
      p->strict_cpu = false; // no strict placement (all threads share same cpumask)
      p->paused     = false; // threads are ready to go
 -- 
-2.47.2
+2.47.3
 
-From 72970cc40096e7aa36de3097430e41c3318a77c5 Mon Sep 17 00:00:00 2001
+
+From bcedb0bcf4e4911c99dced0e80703ba585b06470 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:55 +0100
-Subject: [PATCH 19/21] add whisper_ctx_is_using_gpu
+Subject: [PATCH 19/22] add whisper_ctx_is_using_gpu
 
 ---
  include/whisper.h |  3 +++
@@ -1519,7 +1493,7 @@ Subject: [PATCH 19/21] add whisper_ctx_is_using_gpu
  2 files changed, 30 insertions(+)
 
 diff --git a/include/whisper.h b/include/whisper.h
-index b825bb31..f958cc2e 100644
+index 3aefdd26..37dd35fa 100644
 --- a/include/whisper.h
 +++ b/include/whisper.h
 @@ -264,6 +264,9 @@ extern "C" {
@@ -1533,10 +1507,10 @@ index b825bb31..f958cc2e 100644
      WHISPER_API void whisper_free      (struct whisper_context * ctx);
      WHISPER_API void whisper_free_state(struct whisper_state * state);
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 78ec6b4e..300b835e 100644
+index 1a70c182..668d43c6 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -3845,6 +3845,33 @@ void whisper_free_state(struct whisper_state * state) {
+@@ -3859,6 +3859,33 @@ void whisper_free_state(struct whisper_state * state) {
      }
  }
  
@@ -1571,12 +1545,13 @@ index 78ec6b4e..300b835e 100644
      if (ctx) {
          for (ggml_context * context : ctx->model.ctxs) {
 -- 
-2.47.2
+2.47.3
 
-From 2c8f2de766bf38e6ebefe7ad55897d1bc766c5ee Mon Sep 17 00:00:00 2001
+
+From f0ea1488f2e1a91c02d53a99bead58658a8ee661 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 14:18:08 +0100
-Subject: [PATCH 20/21] ggml: fix android 32bit build
+Subject: [PATCH 20/22] ggml: fix android 32bit build
 
 RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulkan.cpp:1922:92: error: invalid operands to binary expression ('basic_ostream<char, char_traits<char>>' and 'vk::Buffer')
    1922 |     VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
@@ -1585,10 +1560,10 @@ RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulk
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index cbd88d50..637ef7de 100644
+index 10676a83..8cc455db 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -1923,7 +1923,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
+@@ -2259,7 +2259,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
      allocations[buf->buffer] = size;
      total_device += device ? size : 0;
      total_host += device ? 0 : size;
@@ -1597,10 +1572,10 @@ index cbd88d50..637ef7de 100644
  }
  
  void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
-@@ -1939,10 +1939,10 @@ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
-     total_device -= device ? it->second : 0;
-     total_host -= device ? 0 : it->second;
+@@ -2275,10 +2275,10 @@ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
      if (it != allocations.end()) {
+         total_device -= device ? it->second : 0;
+         total_host -= device ? 0 : it->second;
 -        VK_LOG_MEMORY(buf->device->name << ": -" << format_size(it->second) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
 +        VK_LOG_MEMORY(buf->device->name << ": -" << format_size(it->second) << " " << type << " at " << static_cast<VkBuffer>(buf->buffer) << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
          allocations.erase(it);
@@ -1610,13 +1585,23 @@ index cbd88d50..637ef7de 100644
      }
  }
  
+@@ -8141,7 +8141,7 @@ static bool ggml_vk_buffer_write_2d_async(vk_context subctx, vk_buffer& dst, siz
+     }
+ 
+     ggml_vk_sync_buffers(nullptr, subctx);
+-    subctx->s->buffer->buf.copyBuffer((VkBuffer)staging_buffer->buffer, (VkBuffer)dst->buffer, slices);
++    subctx->s->buffer->buf.copyBuffer(staging_buffer->buffer, dst->buffer, slices);
+ 
+     if (width == spitch) {
+         deferred_memcpy((uint8_t *)staging_buffer->ptr, src, staging_size, &subctx->in_memcpys);
 -- 
-2.47.2
+2.47.3
 
-From f6bff60a9500496ed3650b8b43553b9cce888ca3 Mon Sep 17 00:00:00 2001
+
+From c10d41189e11ad303915597c554055f50486218d Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:48:45 +0100
-Subject: [PATCH 21/21] whisper: use int64_t for
+Subject: [PATCH 21/22] whisper: use int64_t for
  whisper_vad_segments_get_segment_t*
 
 Don't do a int64_t -> float conversion, when not needed. (struct
@@ -1627,10 +1612,10 @@ whisper_vad_segment use int64_t).
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/include/whisper.h b/include/whisper.h
-index f958cc2e..b14c3f59 100644
+index 37dd35fa..ad31be13 100644
 --- a/include/whisper.h
 +++ b/include/whisper.h
-@@ -736,8 +736,8 @@ extern "C" {
+@@ -767,8 +767,8 @@ extern "C" {
  
      WHISPER_API int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments);
  
@@ -1642,10 +1627,10 @@ index f958cc2e..b14c3f59 100644
      WHISPER_API void whisper_vad_free_segments(struct whisper_vad_segments * segments);
      WHISPER_API void whisper_vad_free         (struct whisper_vad_context  * ctx);
 diff --git a/src/whisper.cpp b/src/whisper.cpp
-index 300b835e..e0389ecc 100644
+index 668d43c6..a068f8b6 100644
 --- a/src/whisper.cpp
 +++ b/src/whisper.cpp
-@@ -5197,11 +5197,11 @@ int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments) {
+@@ -5220,11 +5220,11 @@ int whisper_vad_segments_n_segments(struct whisper_vad_segments * segments) {
      return segments->data.size();
  }
  
@@ -1660,5 +1645,46 @@ index 300b835e..e0389ecc 100644
  }
  
 -- 
-2.47.2
+2.47.3
+
+
+From 464ed3ed970209cde7b5efc0bc5b009afa48d6cf Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Fri, 24 Jul 2026 20:43:04 +0000
+Subject: [PATCH 22/22] vulkan: disable spirv-opt for vulkan1.1 shaders
+
+Newer upstream shaders emit SPIR-V 1.4 spec-constant ops for buffer-device-address
+(e.g. `OpSpecConstantOp UConvert %bda_step` in im2col.comp). spirv-opt rejects these
+when the module targets vulkan1.1 (SPIR-V 1.3), failing the build with:
+  "Prior to SPIR-V 1.4, specialization constant operation UConvert requires
+   Kernel capability or extension SPV_AMD_gpu_shader_int16"
+Skip the spirv-opt pass entirely in GGML_VULKAN_MIN_1_1 mode; the driver still
+optimizes at pipeline creation.
+---
+ .../ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp  | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+index efc2e123..77420c70 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+@@ -354,7 +354,15 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
+     // disable spirv-opt for bf16 shaders for https://github.com/ggml-org/llama.cpp/issues/15344
+     // disable spirv-opt for rope shaders for https://github.com/ggml-org/llama.cpp/issues/16860
+     // disable spirv-opt for dot2 shaders (spirv-opt doesn't recognize SPV_VALVE_mixed_float_dot_product capability)
+-    if (!coopmat && name.find("bf16") == std::string::npos && name.find("rope") == std::string::npos && name.find("_dot2") == std::string::npos) {
++    bool run_spirv_opt = !coopmat && name.find("bf16") == std::string::npos &&
++                         name.find("rope") == std::string::npos && name.find("_dot2") == std::string::npos;
++#ifdef GGML_VULKAN_MIN_1_1
++    // Targeting vulkan1.1 (SPIR-V 1.3) makes spirv-opt reject SPIR-V 1.4 spec-constant ops
++    // emitted for buffer-device-address (e.g. `OpSpecConstantOp UConvert` in im2col), so skip
++    // the spirv-opt pass in 1.1 mode. The driver still optimizes at pipeline creation.
++    run_spirv_opt = false;
++#endif
++    if (run_spirv_opt) {
+         cmd.push_back("-O");
+     }
+ 
+-- 
+2.47.3
 
