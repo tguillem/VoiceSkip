@@ -2,6 +2,8 @@
 
 package com.voiceskip.ui.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +25,9 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.ImportError
+import com.voiceskip.data.repository.ModelImportState
+import com.voiceskip.data.repository.ModelInfo
 import com.voiceskip.domain.ModelManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -36,6 +42,18 @@ private fun ModelManager.GpuFallbackReason.toMessage(): String = when (this) {
 @Composable
 private fun ModelManager.TurboFallbackReason.toMessage(): String = when (this) {
     ModelManager.TurboFallbackReason.CRASH -> stringResource(R.string.msg_turbo_crash)
+}
+
+@Composable
+private fun ModelManager.ModelFallbackReason.toMessage(): String = when (this) {
+    ModelManager.ModelFallbackReason.UNAVAILABLE -> stringResource(R.string.msg_model_unavailable)
+    ModelManager.ModelFallbackReason.LOAD_FAILED -> stringResource(R.string.msg_model_load_failed)
+}
+
+@Composable
+private fun ImportError.toMessage(): String = when (this) {
+    ImportError.NOT_A_BIN_FILE -> stringResource(R.string.settings_import_error_not_bin)
+    ImportError.UNREADABLE -> stringResource(R.string.settings_import_error_unreadable)
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
@@ -64,11 +82,24 @@ fun SettingsScreen(
         }
     }
 
+    uiState.modelFallbackReason?.let { reason ->
+        val message = reason.toMessage()
+        LaunchedEffect(reason) {
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+            viewModel.onModelFallbackDismissed()
+        }
+    }
+
     val notificationPermissionState = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         rememberPermissionState(permission = android.Manifest.permission.POST_NOTIFICATIONS)
     } else {
         null
     }
+
+    // Storage Access Framework requires no permission; the grant is persisted so the reference survives restarts.
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.importModel(it) } }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -128,6 +159,7 @@ fun SettingsScreen(
             SectionHeader(title = stringResource(R.string.settings_section_model))
             Spacer(modifier = Modifier.height(Spacing.small))
             ModelSelector(
+                models = uiState.availableModels,
                 selectedModel = uiState.model,
                 onModelSelected = { viewModel.setModel(it) }
             )
@@ -164,6 +196,21 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(Spacing.extraLarge))
 
+            SectionHeader(title = stringResource(R.string.settings_section_advanced))
+            Spacer(modifier = Modifier.height(Spacing.small))
+            CustomModelCard(
+                importState = uiState.importState,
+                importedModels = uiState.availableModels.filter { it.isImported },
+                selectedModel = uiState.model,
+                onImportClick = {
+                    viewModel.clearImportError()
+                    importLauncher.launch(arrayOf("*/*"))
+                },
+                onDeleteModel = { viewModel.deleteModel(it) }
+            )
+
+            Spacer(modifier = Modifier.height(Spacing.extraLarge))
+
             SectionHeader(title = stringResource(R.string.settings_section_about))
             Spacer(modifier = Modifier.height(Spacing.small))
             AboutSection()
@@ -183,30 +230,24 @@ private fun SectionHeader(title: String) {
 
 @Composable
 private fun ModelSelector(
+    models: List<ModelInfo>,
     selectedModel: String,
     onModelSelected: (String) -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-
-    fun extractModelName(filename: String): String {
-        return filename.removePrefix("ggml-").removeSuffix(".bin")
-    }
-
-    val allModels = remember {
-        UserPreferences.getAvailableModelNames(context)
-    }
-
     val labelFaster = stringResource(R.string.settings_model_faster)
     val labelBalanced = stringResource(R.string.settings_model_balanced)
     val labelPrecise = stringResource(R.string.settings_model_precise)
+    val labelCustom = stringResource(R.string.settings_model_custom)
 
-    val models = allModels.mapIndexed { index, modelFile ->
-        val label = when (index) {
+    val bundled = models.filterNot { it.isImported }
+
+    fun labelFor(info: ModelInfo): String {
+        if (info.isImported) return labelCustom
+        return when (bundled.indexOfFirst { it.id == info.id }) {
             0 -> labelFaster
-            allModels.size - 1 -> labelPrecise
+            bundled.lastIndex -> labelPrecise
             else -> labelBalanced
         }
-        modelFile to label
     }
 
     Card(
@@ -220,8 +261,7 @@ private fun ModelSelector(
                 .fillMaxWidth()
                 .padding(Spacing.large)
         ) {
-            models.forEach { (modelFile, mainLabel) ->
-                val modelName = extractModelName(modelFile)
+            models.forEach { info ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -229,21 +269,105 @@ private fun ModelSelector(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     androidx.compose.material3.RadioButton(
-                        selected = selectedModel == modelFile,
-                        onClick = { onModelSelected(modelFile) }
+                        selected = selectedModel == info.id,
+                        onClick = { onModelSelected(info.id) }
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = mainLabel,
+                            text = labelFor(info),
                             style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
-                            text = stringResource(R.string.settings_model_name, modelName),
+                            text = stringResource(R.string.settings_model_name, info.displayName),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomModelCard(
+    importState: ModelImportState,
+    importedModels: List<ModelInfo>,
+    selectedModel: String,
+    onImportClick: () -> Unit,
+    onDeleteModel: (String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.large)
+        ) {
+            Text(
+                text = stringResource(R.string.settings_custom_model_title),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(Spacing.extraSmall))
+            Text(
+                text = stringResource(R.string.settings_custom_model_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(Spacing.medium))
+
+            Button(
+                onClick = onImportClick,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.settings_import_model))
+            }
+
+            if (importState is ModelImportState.Error) {
+                Spacer(modifier = Modifier.height(Spacing.small))
+                Text(
+                    text = importState.reason.toMessage(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            if (importedModels.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(Spacing.medium))
+                importedModels.forEach { info ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = Spacing.extraSmall),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = info.displayName,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (info.id == selectedModel) {
+                                Text(
+                                    text = stringResource(R.string.settings_import_in_use),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        IconButton(onClick = { onDeleteModel(info.id) }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.settings_remove_model)
+                            )
+                        }
                     }
                 }
             }

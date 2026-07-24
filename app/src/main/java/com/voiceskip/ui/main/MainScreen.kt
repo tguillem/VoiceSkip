@@ -90,6 +90,12 @@ private fun ModelManager.TurboFallbackReason.toMessage(): String = when (this) {
 }
 
 @Composable
+private fun ModelManager.ModelFallbackReason.toMessage(): String = when (this) {
+    ModelManager.ModelFallbackReason.UNAVAILABLE -> stringResource(R.string.msg_model_unavailable)
+    ModelManager.ModelFallbackReason.LOAD_FAILED -> stringResource(R.string.msg_model_load_failed)
+}
+
+@Composable
 private fun TranscriptionFailureReason.toMessage(): String = when (this) {
     TranscriptionFailureReason.GENERIC_FAILURE -> stringResource(R.string.msg_transcription_failed)
     TranscriptionFailureReason.GPU_FAILURE_RETRYING -> stringResource(R.string.msg_gpu_transcription_failed)
@@ -139,6 +145,14 @@ fun MainScreen(
         LaunchedEffect(reason) {
             snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
             viewModel.onTurboFallbackDismissed()
+        }
+    }
+
+    uiState.modelFallbackReason?.let { reason ->
+        val message = reason.toMessage()
+        LaunchedEffect(reason) {
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Long)
+            viewModel.onModelFallbackDismissed()
         }
     }
 

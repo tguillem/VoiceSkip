@@ -123,6 +123,7 @@ data class MainScreenUiState(
     val numThreads: Int = UserPreferences.getDefaultNumThreads(true),
     val gpuFallbackReason: ModelManager.GpuFallbackReason? = null,
     val turboFallbackReason: ModelManager.TurboFallbackReason? = null,
+    val modelFallbackReason: ModelManager.ModelFallbackReason? = null,
     val queueLimitStopReason: LiveTranscriptionUseCase.StopReason? = null,
     val transcriptionFailureReason: TranscriptionFailureReason? = null,
     val listenModeEnabled: Boolean = false,
@@ -167,6 +168,15 @@ class MainScreenViewModel @Inject constructor(
 
     private val _showFileSelector = MutableStateFlow(false)
     private val _pendingDelete = MutableStateFlow<SavedTranscription?>(null)
+    // Named rather than an anonymous object: four same-shaped nullables, so a mis-wire
+    // between them would otherwise compile silently.
+    private data class SecondaryState(
+        val turboFallbackReason: ModelManager.TurboFallbackReason?,
+        val transcriptionFailureReason: TranscriptionFailureReason?,
+        val playbackState: PlaybackState,
+        val modelFallbackReason: ModelManager.ModelFallbackReason?
+    )
+
     private val _transcriptionFailureReason = MutableStateFlow<TranscriptionFailureReason?>(null)
     private val pendingUriMutex = Mutex()
 
@@ -181,14 +191,23 @@ class MainScreenViewModel @Inject constructor(
         settingsRepository.userSettings,
         repository.sessionLanguage,
         _showFileSelector,
-        combine(modelManager.turboFallbackReason, _transcriptionFailureReason, audioListenUseCase.playbackState) { turbo, failure, playback -> Triple(turbo, failure, playback) }
-    ) { combined, settings, sessionLanguage, showFileSelector, turboFailurePlayback ->
+        combine(
+            modelManager.turboFallbackReason,
+            _transcriptionFailureReason,
+            audioListenUseCase.playbackState,
+            modelManager.modelFallbackReason,
+            ::SecondaryState
+        )
+    ) { combined, settings, sessionLanguage, showFileSelector, secondary ->
         val repoState = combined.repoState
         val modelState = combined.modelState
         val gpuFallbackReason = combined.gpuFallbackReason
         val savedTranscription = combined.savedTx
         val pendingDelete = combined.pendingDel
-        val (turboFallbackReason, transcriptionFailureReason, playbackState) = turboFailurePlayback
+        val turboFallbackReason = secondary.turboFallbackReason
+        val transcriptionFailureReason = secondary.transcriptionFailureReason
+        val playbackState = secondary.playbackState
+        val modelFallbackReason = secondary.modelFallbackReason
 
         val canTranscribe = modelState is ModelManager.ModelState.Loaded && repoState is TranscriptionState.Idle
 
@@ -216,6 +235,7 @@ class MainScreenViewModel @Inject constructor(
             numThreads = settings.numThreads,
             gpuFallbackReason = gpuFallbackReason,
             turboFallbackReason = turboFallbackReason,
+            modelFallbackReason = modelFallbackReason,
             transcriptionFailureReason = transcriptionFailureReason,
             listenModeEnabled = settings.listenModeEnabled,
             listenModeAvailable = listenModeAvailable,
@@ -593,6 +613,10 @@ class MainScreenViewModel @Inject constructor(
 
     fun onTurboFallbackDismissed() {
         modelManager.clearTurboFallbackReason()
+    }
+
+    fun onModelFallbackDismissed() {
+        modelManager.clearModelFallbackReason()
     }
 
     fun onTranscriptionFailureDismissed() {

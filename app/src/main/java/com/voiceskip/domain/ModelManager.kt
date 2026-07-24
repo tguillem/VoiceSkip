@@ -3,14 +3,18 @@
 package com.voiceskip.domain
 
 import android.content.res.AssetManager
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.voiceskip.data.ErrorHandler
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.ModelRepository
 import com.voiceskip.data.repository.TranscriptionRepository
 import com.voiceskip.ui.main.FileManager
 import com.voiceskip.util.VoiceSkipLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,25 +22,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 
 private const val LOG_TAG = "ModelManager"
+private const val REFERENCE_SCHEME = "content://"
+
+private data class ObservedModelSettings(
+    val model: String,
+    val gpuEnabled: Boolean,
+    val turboEnabled: Boolean,
+    val reloadGeneration: Long
+)
 
 class ModelManager(
     private val repository: TranscriptionRepository,
+    private val modelRepository: ModelRepository,
     private val userPreferences: UserPreferences,
     private val fileManager: FileManager
 ) {
     sealed class ModelState {
         object NotLoaded : ModelState()
-        data class Loading(val modelPath: String, val useGpu: Boolean) : ModelState()
-        data class Loaded(val modelPath: String, val gpuInfo: String?) : ModelState()
+        data class Loading(val modelId: String, val useGpu: Boolean) : ModelState()
+        data class Loaded(val modelId: String, val gpuInfo: String?) : ModelState()
         data class Error(val exception: Throwable) : ModelState()
     }
 
     enum class GpuFallbackReason { CRASH, UNAVAILABLE }
 
     enum class TurboFallbackReason { CRASH }
+
+    enum class ModelFallbackReason { UNAVAILABLE, LOAD_FAILED }
 
     private val _modelState = MutableStateFlow<ModelState>(ModelState.NotLoaded)
     val modelState: StateFlow<ModelState> = _modelState.asStateFlow()
@@ -47,6 +65,12 @@ class ModelManager(
     private val _turboFallbackReason = MutableStateFlow<TurboFallbackReason?>(null)
     val turboFallbackReason: StateFlow<TurboFallbackReason?> = _turboFallbackReason.asStateFlow()
 
+    private val _modelFallbackReason = MutableStateFlow<ModelFallbackReason?>(null)
+    val modelFallbackReason: StateFlow<ModelFallbackReason?> = _modelFallbackReason.asStateFlow()
+
+    private val modelReloadGeneration = MutableStateFlow(0L)
+    private var handledModelReloadGeneration = 0L
+
     fun clearGpuFallbackReason() {
         _gpuFallbackReason.value = null
     }
@@ -55,18 +79,57 @@ class ModelManager(
         _turboFallbackReason.value = null
     }
 
-    fun getLoadedModelPath(): String? = when (val state = _modelState.value) {
-        is ModelState.Loaded -> state.modelPath
+    fun clearModelFallbackReason() {
+        _modelFallbackReason.value = null
+    }
+
+    fun requestModelReload() {
+        modelReloadGeneration.update { it + 1 }
+    }
+
+    fun getLoadedModelId(): String? = when (val state = _modelState.value) {
+        is ModelState.Loaded -> state.modelId
         else -> null
     }
 
     fun getModelFlow(): Flow<String> = userPreferences.model
 
+    private fun isReference(modelId: String) = modelId.startsWith(REFERENCE_SCHEME)
+
+    /**
+     * Resolves a model id to the arguments the native loader needs. A bundled model is an
+     * asset path; an imported model is loaded from a file descriptor opened for the duration
+     * of [block] (the descriptor must stay open until the native load completes).
+     */
+    private suspend fun <T> withModelSource(
+        modelId: String,
+        block: suspend (modelPath: String?, modelFd: Int) -> T
+    ): T {
+        if (!isReference(modelId)) {
+            return block("models/$modelId", -1)
+        }
+        val pfd = modelRepository.openImportedModel(modelId)
+            ?: throw IOException("Imported model is no longer available: $modelId")
+        return pfd.use { block(null, it.fd) }
+    }
+
     suspend fun loadModel(assets: AssetManager, forceReload: Boolean = false): Result<Unit> {
+        var pfd: ParcelFileDescriptor? = null
+        suspend fun finishImportedModelLoad() {
+            val descriptor = pfd ?: return
+            withContext(NonCancellable) {
+                try {
+                    modelRepository.setImportedModelLoadInProgress(false)
+                } finally {
+                    descriptor.close()
+                    pfd = null
+                }
+            }
+        }
+
         return runCatching {
-            val selectedModel = userPreferences.model.first()
+            var requestedModel = userPreferences.model.first()
             var gpuEnabled = userPreferences.gpuEnabled.first()
-            val modelPath = "models/$selectedModel"
 
             if (gpuEnabled && userPreferences.isGpuInProgress()) {
                 VoiceSkipLogger.w("Previous GPU operation crashed, falling back to CPU")
@@ -74,6 +137,18 @@ class ModelManager(
                 userPreferences.setGpuEnabled(false)
                 gpuEnabled = false
                 _gpuFallbackReason.value = GpuFallbackReason.CRASH
+            }
+
+            // The flag survives a kill, so it is still set if loading the custom model hung or
+            // took the process down. Retrying would hang again, so drop the selection.
+            if (modelRepository.isImportedModelLoadInProgress()) {
+                modelRepository.setImportedModelLoadInProgress(false)
+                if (isReference(requestedModel)) {
+                    VoiceSkipLogger.w("Previous custom model load failed, falling back to default model")
+                    requestedModel = userPreferences.getDefaultModelForContext()
+                    userPreferences.setModel(requestedModel)
+                    _modelFallbackReason.value = ModelFallbackReason.LOAD_FAILED
+                }
             }
 
             if (userPreferences.isTurboLoadInProgress()) {
@@ -88,13 +163,13 @@ class ModelManager(
             if (!forceReload) {
                 when (currentState) {
                     is ModelState.Loading -> {
-                        if (currentState.modelPath == modelPath && currentState.useGpu == gpuEnabled) {
+                        if (currentState.modelId == requestedModel && currentState.useGpu == gpuEnabled) {
                             VoiceSkipLogger.d("Model already loading with same settings, skipping")
                             return@runCatching
                         }
                     }
                     is ModelState.Loaded -> {
-                        if (currentState.modelPath == modelPath && (currentState.gpuInfo != null) == gpuEnabled) {
+                        if (currentState.modelId == requestedModel && (currentState.gpuInfo != null) == gpuEnabled) {
                             VoiceSkipLogger.d("Model already loaded with same settings, skipping")
                             return@runCatching
                         }
@@ -103,24 +178,80 @@ class ModelManager(
                 }
             }
 
-            _modelState.value = ModelState.Loading(modelPath, gpuEnabled)
+            // An imported reference opens a file descriptor; if the reference is gone (file
+            // moved/deleted or permission revoked), fall back to the bundled default so the
+            // app never gets stuck on an unusable selection.
+            var modelId = requestedModel
+            if (isReference(modelId)) {
+                pfd = modelRepository.openImportedModel(modelId)
+                if (pfd == null) {
+                    VoiceSkipLogger.w("Imported model unavailable, falling back to default model")
+                    modelId = userPreferences.getDefaultModelForContext()
+                    userPreferences.setModel(modelId)
+                    _modelFallbackReason.value = ModelFallbackReason.UNAVAILABLE
+                }
+            }
+            val modelPath = if (pfd != null) null else "models/$modelId"
+            val modelFd = pfd?.fd ?: -1
+
+            _modelState.value = ModelState.Loading(modelId, gpuEnabled)
 
             if (gpuEnabled) {
                 userPreferences.setGpuInProgress(true)
             }
 
+            if (pfd != null) {
+                modelRepository.setImportedModelLoadInProgress(true)
+            }
+
             fileManager.copyAssets(assets)
 
             val vadModelPath = userPreferences.getVadModelPath()
-            VoiceSkipLogger.i("Loading model: $modelPath, vadModel: $vadModelPath, GPU: ${if (gpuEnabled) "enabled" else "disabled"}, forceReload: $forceReload")
+            VoiceSkipLogger.i("Loading model: $modelId, vadModel: $vadModelPath, GPU: ${if (gpuEnabled) "enabled" else "disabled"}, forceReload: $forceReload")
 
-            val result = repository.loadModel(assets, modelPath, vadModelPath, gpuEnabled, forceReload)
+            var result = repository.loadModel(
+                assets,
+                modelPath,
+                vadModelPath,
+                gpuEnabled,
+                forceReload,
+                modelFd
+            )
+            val importedModelFailure = result.exceptionOrNull()
+            if (
+                importedModelFailure != null &&
+                importedModelFailure !is CancellationException &&
+                isReference(modelId)
+            ) {
+                Log.w(LOG_TAG, importedModelFailure)
+                VoiceSkipLogger.e("Failed to load imported model", importedModelFailure)
+
+                modelId = userPreferences.getDefaultModelForContext()
+                userPreferences.setModel(modelId)
+                _modelFallbackReason.value = ModelFallbackReason.LOAD_FAILED
+                finishImportedModelLoad()
+
+                _modelState.value = ModelState.Loading(modelId, gpuEnabled)
+                VoiceSkipLogger.i(
+                    "Loading fallback model: $modelId, vadModel: $vadModelPath, " +
+                        "GPU: ${if (gpuEnabled) "enabled" else "disabled"}"
+                )
+                result = repository.loadModel(
+                    assets,
+                    "models/$modelId",
+                    vadModelPath,
+                    gpuEnabled,
+                    forceReload = true,
+                    modelFd = -1
+                )
+            }
             val gpuInfo = result.getOrElse { e ->
                 Log.w(LOG_TAG, e)
                 VoiceSkipLogger.e("Failed to load model", e)
                 _modelState.value = ModelState.Error(e)
                 throw e
             }
+            finishImportedModelLoad()
 
             if (gpuEnabled) {
                 userPreferences.setGpuInProgress(false)
@@ -131,18 +262,18 @@ class ModelManager(
                 userPreferences.setGpuEnabled(false)
                 _gpuFallbackReason.value = GpuFallbackReason.UNAVAILABLE
             }
-            _modelState.value = ModelState.Loaded(modelPath, gpuInfo)
+            _modelState.value = ModelState.Loaded(modelId, gpuInfo)
 
             if (repository.isTurboModelLoaded()) {
-                VoiceSkipLogger.i("Reloading turbo CPU model: $modelPath")
+                VoiceSkipLogger.i("Reloading turbo CPU model: $modelId")
                 userPreferences.setTurboLoadInProgress(true)
-                repository.loadTurboModel(assets, modelPath, vadModelPath)
+                withModelSource(modelId) { mp, fd -> repository.loadTurboModel(assets, mp, vadModelPath, fd) }
                 userPreferences.setTurboLoadInProgress(false)
             }
 
-            maybeAutoEnableTurbo(assets, modelPath, vadModelPath, gpuInfo)
+            maybeAutoEnableTurbo(assets, modelId, vadModelPath, gpuInfo)
 
-            VoiceSkipLogger.d("Model state updated to: Loaded(path=$modelPath, gpu=$gpuInfo)")
+            VoiceSkipLogger.d("Model state updated to: Loaded(id=$modelId, gpu=$gpuInfo)")
         }.fold(
             onSuccess = { Result.success(Unit) },
             onFailure = { exception ->
@@ -153,7 +284,7 @@ class ModelManager(
                 _modelState.value = ModelState.Error(whisperError)
                 Result.failure(whisperError)
             }
-        )
+        ).also { finishImportedModelLoad() }
     }
 
     fun isModelLoaded(): Boolean = _modelState.value is ModelState.Loaded
@@ -169,9 +300,11 @@ class ModelManager(
             if (enabled) {
                 if (!repository.isTurboModelLoaded()) {
                     val vadModelPath = userPreferences.getVadModelPath()
-                    VoiceSkipLogger.i("Loading CPU model for turbo mode: ${currentState.modelPath}")
+                    VoiceSkipLogger.i("Loading CPU model for turbo mode: ${currentState.modelId}")
                     userPreferences.setTurboLoadInProgress(true)
-                    repository.loadTurboModel(assets, currentState.modelPath, vadModelPath)
+                    withModelSource(currentState.modelId) { mp, fd ->
+                        repository.loadTurboModel(assets, mp, vadModelPath, fd)
+                    }
                     userPreferences.setTurboLoadInProgress(false)
                     VoiceSkipLogger.i("CPU model loaded for turbo mode")
                 }
@@ -195,7 +328,7 @@ class ModelManager(
 
     fun isTurboCpuLoaded(): Boolean = repository.isTurboModelLoaded()
 
-    private suspend fun maybeAutoEnableTurbo(assets: AssetManager, modelPath: String, vadModelPath: String?, gpuInfo: String?) {
+    private suspend fun maybeAutoEnableTurbo(assets: AssetManager, modelId: String, vadModelPath: String?, gpuInfo: String?) {
         if (userPreferences.turboModeHasBeenSet.first()) return
 
         val gpuActive = gpuInfo != null
@@ -207,7 +340,7 @@ class ModelManager(
         userPreferences.setTurboModeEnabled(true, isUserAction = false)
 
         userPreferences.setTurboLoadInProgress(true)
-        repository.loadTurboModel(assets, modelPath, vadModelPath)
+        withModelSource(modelId) { mp, fd -> repository.loadTurboModel(assets, mp, vadModelPath, fd) }
         userPreferences.setTurboLoadInProgress(false)
         VoiceSkipLogger.i("Turbo mode auto-enabled and CPU model loaded")
     }
@@ -222,15 +355,23 @@ class ModelManager(
             combine(
                 userPreferences.model,
                 userPreferences.gpuEnabled,
-                userPreferences.turboModeEnabled
-            ) { model, gpu, turbo -> Triple(model, gpu, turbo) }
+                userPreferences.turboModeEnabled,
+                modelReloadGeneration
+            ) { model, gpu, turbo, reloadGeneration ->
+                ObservedModelSettings(model, gpu, turbo, reloadGeneration)
+            }
                 .debounce(100)
-                .collect { (model, gpuEnabled, turboEnabled) ->
+                .collect { settings ->
+                    val model = settings.model
+                    val gpuEnabled = settings.gpuEnabled
+                    val turboEnabled = settings.turboEnabled
                     val isFirstEmission = previousModel == null
                     val modelOrGpuChanged = !isFirstEmission &&
                         (previousModel != model || previousGpuEnabled != gpuEnabled)
                     val turboChanged = !isFirstEmission &&
                         previousTurboEnabled != turboEnabled
+                    val reloadRequested =
+                        handledModelReloadGeneration != settings.reloadGeneration
 
                     if (turboChanged) {
                         VoiceSkipLogger.i("Turbo mode changed to: $turboEnabled")
@@ -240,10 +381,21 @@ class ModelManager(
                         updateTurboMode(assets, true)
                     }
 
-                    if (modelOrGpuChanged) {
-                        VoiceSkipLogger.i("Settings changed, forcing reload...")
+                    val loadedState = _modelState.value as? ModelState.Loaded
+                    val importedFallbackAlreadyLoaded =
+                        previousModel?.let(::isReference) == true &&
+                            !isReference(model) &&
+                            previousGpuEnabled == gpuEnabled &&
+                            loadedState?.modelId == model
+
+                    if (
+                        reloadRequested ||
+                        (modelOrGpuChanged && !importedFallbackAlreadyLoaded)
+                    ) {
+                        VoiceSkipLogger.i("Model settings or source changed, forcing reload...")
                         loadModel(assets, forceReload = true)
                     }
+                    handledModelReloadGeneration = settings.reloadGeneration
 
                     previousModel = model
                     previousGpuEnabled = gpuEnabled

@@ -23,9 +23,10 @@ class FakeWhisperDataSource : WhisperDataSource {
     var loadModelPath: String? = null
     var loadModelVadPath: String? = null
     var loadModelUseGpu: Boolean? = null
+    var loadModelFd: Int? = null
     var loadModelResult: Result<Unit> = Result.success(Unit)
-    var loadModelGpuResult: String? = "Test GPU"
-    var loadModelShouldEmitLoaded = true
+    var modelEventOnLoad: TranscriptionEvent? =
+        TranscriptionEvent.ModelLoaded(gpuInfo = "Test GPU")
 
     var startStreamCalled = false
     var startStreamCalls = mutableListOf<StartStreamCall>()
@@ -51,20 +52,20 @@ class FakeWhisperDataSource : WhisperDataSource {
 
     override fun loadModel(
         assets: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String?,
-        useGpu: Boolean
+        useGpu: Boolean,
+        modelFd: Int
     ) {
         loadModelCalled = true
         loadModelPath = modelPath
         loadModelVadPath = vadModelPath
         loadModelUseGpu = useGpu
+        loadModelFd = modelFd
 
         loadModelResult.getOrThrow()
 
-        if (loadModelShouldEmitLoaded) {
-            _events.tryEmit(TranscriptionEvent.ModelLoaded(loadModelGpuResult))
-        }
+        modelEventOnLoad?.let { _events.tryEmit(it) }
     }
 
     override fun startStream(
@@ -96,7 +97,7 @@ class FakeWhisperDataSource : WhisperDataSource {
         destroyCalled = true
     }
 
-    override fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String, vadModelPath: String?) {
+    override fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int) {
         setTurboModeCalled = true
         setTurboModeEnabled = enabled
         _isTurboEnabled = enabled
@@ -136,9 +137,9 @@ class FakeWhisperDataSource : WhisperDataSource {
         loadModelPath = null
         loadModelVadPath = null
         loadModelUseGpu = null
+        loadModelFd = null
         loadModelResult = Result.success(Unit)
-        loadModelGpuResult = "Test GPU"
-        loadModelShouldEmitLoaded = true
+        modelEventOnLoad = TranscriptionEvent.ModelLoaded(gpuInfo = "Test GPU")
         startStreamCalled = false
         startStreamCalls.clear()
         stopCalled = false

@@ -6,8 +6,14 @@ import com.voiceskip.data.repository.AudioPlaybackRepository
 import com.voiceskip.data.repository.AudioPlaybackRepositoryImpl
 import com.voiceskip.data.repository.DefaultMediaPlayerFactory
 import com.voiceskip.data.repository.MediaPlayerFactory
+import com.voiceskip.data.repository.ModelRepository
+import com.voiceskip.data.repository.ModelRepositoryImpl
 import com.voiceskip.data.repository.TranscriptionRepository
 import com.voiceskip.data.repository.TranscriptionRepositoryImpl
+import com.voiceskip.data.source.DataStoreImportedModelStore
+import com.voiceskip.data.source.ImportedModelDocumentDataSource
+import com.voiceskip.data.source.ImportedModelDocumentDataSourceImpl
+import com.voiceskip.data.source.ImportedModelStore
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -22,6 +28,24 @@ abstract class DataModule {
     abstract fun bindTranscriptionRepository(
         impl: TranscriptionRepositoryImpl
     ): TranscriptionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindModelRepository(
+        impl: ModelRepositoryImpl
+    ): ModelRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindImportedModelDocumentDataSource(
+        impl: ImportedModelDocumentDataSourceImpl
+    ): ImportedModelDocumentDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindImportedModelStore(
+        impl: DataStoreImportedModelStore
+    ): ImportedModelStore
 
     @Binds
     @Singleton

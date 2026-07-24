@@ -9,6 +9,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.ModelRepository
 import com.voiceskip.data.repository.SavedTranscriptionRepository
 import com.voiceskip.data.repository.SavedTranscriptionRepositoryImpl
 import com.voiceskip.data.repository.SettingsRepository
@@ -60,10 +61,16 @@ object AppModule {
     @Singleton
     fun provideModelManager(
         repository: TranscriptionRepository,
+        modelRepository: ModelRepository,
         userPreferences: UserPreferences,
         fileManager: FileManager
     ): ModelManager {
-        return ModelManager(repository, userPreferences, fileManager)
+        return ModelManager(
+            repository,
+            modelRepository,
+            userPreferences,
+            fileManager
+        )
     }
 
     @Provides

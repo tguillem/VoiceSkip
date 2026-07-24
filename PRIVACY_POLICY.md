@@ -31,6 +31,12 @@ VoiceSkip requests the following permissions:
 - **Wake Lock (WAKE_LOCK):** Prevents the device from sleeping during
   transcription to ensure processing completes.
 
+- **Imported models:** If you import your own whisper model file, VoiceSkip
+  keeps a lasting read permission for that file so it can load it again on
+  later launches. The file is not copied. Removing the model in Settings
+  removes its reference from VoiceSkip and asks Android to release the read
+  permission.
+
 ## Data Storage
 
 - Transcription results are stored only on your device in the app's local

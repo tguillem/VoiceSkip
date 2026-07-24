@@ -15,6 +15,14 @@ import java.io.File
 
 class FakeTranscriptionRepository : TranscriptionRepository {
 
+    data class LoadModelCall(
+        val modelPath: String?,
+        val vadModelPath: String?,
+        val useGpu: Boolean,
+        val forceReload: Boolean,
+        val modelFd: Int
+    )
+
     private val _state = MutableStateFlow<TranscriptionState>(TranscriptionState.Idle)
     override val state: StateFlow<TranscriptionState> = _state.asStateFlow()
 
@@ -44,9 +52,12 @@ class FakeTranscriptionRepository : TranscriptionRepository {
     var lastLoadModelPath: String? = null
     var lastLoadVadModelPath: String? = null
     var lastLoadModelUseGpu: Boolean? = null
+    var lastLoadModelFd: Int? = null
 
     var loadModelResult: Result<Boolean> = Result.success(true)
     var loadModelGpuResult: String? = "Test GPU"
+    var loadModelResultProvider: ((LoadModelCall) -> Result<Boolean>)? = null
+    val loadModelCalls = mutableListOf<LoadModelCall>()
 
     private var _isModelLoaded = false
     private var _currentTranscriptionSource: TranscriptionSource? = null
@@ -138,21 +149,33 @@ class FakeTranscriptionRepository : TranscriptionRepository {
 
     override suspend fun loadModel(
         assets: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String?,
         useGpu: Boolean,
-        forceReload: Boolean
+        forceReload: Boolean,
+        modelFd: Int
     ): Result<String?> {
         loadModelCalled = true
         lastLoadModelPath = modelPath
         lastLoadVadModelPath = vadModelPath
         lastLoadModelUseGpu = useGpu
+        lastLoadModelFd = modelFd
 
-        return loadModelResult.map { loadModelGpuResult }.also {
-            if (it.isSuccess) {
-                _isModelLoaded = true
+        val call = LoadModelCall(
+            modelPath = modelPath,
+            vadModelPath = vadModelPath,
+            useGpu = useGpu,
+            forceReload = forceReload,
+            modelFd = modelFd
+        )
+        loadModelCalls += call
+
+        return (loadModelResultProvider?.invoke(call) ?: loadModelResult)
+            .map { loadModelGpuResult }.also {
+                if (it.isSuccess) {
+                    _isModelLoaded = true
+                }
             }
-        }
     }
 
     override suspend fun stopTranscription() {
@@ -181,11 +204,17 @@ class FakeTranscriptionRepository : TranscriptionRepository {
     private var _isTurboModelLoaded = false
     var loadTurboModelCalled = false
     var unloadTurboModelCalled = false
+    var loadTurboModelResult: Result<Unit> = Result.success(Unit)
+    var loadTurboModelResultProvider: (suspend () -> Result<Unit>)? = null
 
-    override suspend fun loadTurboModel(assets: AssetManager, modelPath: String, vadModelPath: String?): Result<Unit> {
+    var lastLoadTurboModelFd: Int? = null
+
+    override suspend fun loadTurboModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int): Result<Unit> {
         loadTurboModelCalled = true
-        _isTurboModelLoaded = true
-        return Result.success(Unit)
+        lastLoadTurboModelFd = modelFd
+        val result = loadTurboModelResultProvider?.invoke() ?: loadTurboModelResult
+        _isTurboModelLoaded = result.isSuccess
+        return result
     }
 
     override suspend fun unloadTurboModel(): Result<Unit> {
@@ -239,6 +268,9 @@ class FakeTranscriptionRepository : TranscriptionRepository {
         lastLoadModelPath = null
         lastLoadVadModelPath = null
         lastLoadModelUseGpu = null
+        lastLoadModelFd = null
+        lastLoadTurboModelFd = null
+        loadModelCalls.clear()
     }
 
     fun fullReset() {
@@ -252,5 +284,6 @@ class FakeTranscriptionRepository : TranscriptionRepository {
         _currentTranscriptionSource = null
         loadModelResult = Result.success(true)
         loadModelGpuResult = "Test GPU"
+        loadModelResultProvider = null
     }
 }

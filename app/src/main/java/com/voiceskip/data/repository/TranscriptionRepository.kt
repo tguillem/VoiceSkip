@@ -34,8 +34,8 @@ interface TranscriptionRepository {
         audioUri: Uri? = null
     )
 
-    suspend fun loadModel(assets: AssetManager, modelPath: String, vadModelPath: String?, useGpu: Boolean = true, forceReload: Boolean = false): Result<String?>
-    suspend fun loadTurboModel(assets: AssetManager, modelPath: String, vadModelPath: String?): Result<Unit>
+    suspend fun loadModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, useGpu: Boolean = true, forceReload: Boolean = false, modelFd: Int = -1): Result<String?>
+    suspend fun loadTurboModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int = -1): Result<Unit>
     suspend fun unloadTurboModel(): Result<Unit>
     fun isTurboModelLoaded(): Boolean
     suspend fun stopTranscription()

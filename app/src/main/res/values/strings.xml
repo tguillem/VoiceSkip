@@ -99,6 +99,7 @@
     <string name="settings_model_faster">Faster</string>
     <string name="settings_model_balanced">Balanced</string>
     <string name="settings_model_precise">More precise</string>
+    <string name="settings_model_custom">Custom</string>
     <string name="settings_model_name">%s model</string>
 
     <!-- Settings - Performance -->
@@ -116,6 +117,18 @@
     <string name="settings_turbo_desc_enabled">Using %d CPU threads + GPU</string>
     <string name="settings_vad_title">Voice Activity Detection</string>
     <string name="settings_vad_desc">Better for noisy audio, but may miss quiet or short speech</string>
+
+    <!-- Settings - Advanced (custom model import) -->
+    <string name="settings_section_advanced">Advanced</string>
+    <string name="settings_custom_model_title">Custom models</string>
+    <string name="settings_custom_model_desc">Use a whisper ggml model (.bin) stored on your device. The file isn\'t copied, so keep it in place. If you move or delete it, the model stops working.</string>
+    <string name="settings_import_model">Add model…</string>
+    <string name="settings_import_in_use">In use</string>
+    <string name="settings_remove_model">Remove from app, keep the file</string>
+    <string name="settings_import_error_not_bin">Please select a .bin model file.</string>
+    <string name="settings_import_error_unreadable">Couldn\'t read the selected file.</string>
+    <string name="msg_model_unavailable">Custom model is no longer available; switched to a built-in model.</string>
+    <string name="msg_model_load_failed">Custom model failed to load; switched to a built-in model.</string>
 
     <!-- Settings - About -->
     <string name="settings_section_about">About</string>

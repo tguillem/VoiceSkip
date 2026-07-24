@@ -45,16 +45,17 @@ class WhisperDataSourceImpl : WhisperDataSource {
 
     override fun loadModel(
         assets: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String?,
-        useGpu: Boolean
+        useGpu: Boolean,
+        modelFd: Int
     ) {
-        whisperContext.loadModel(assets, modelPath, vadModelPath, useGpu)
+        whisperContext.loadModel(assets, modelPath, vadModelPath, useGpu, modelFd)
     }
 
-    override fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String, vadModelPath: String?) {
+    override fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int) {
         if (enabled) {
-            whisperContext.loadSecondModel(assets, modelPath, vadModelPath)
+            whisperContext.loadSecondModel(assets, modelPath, vadModelPath, modelFd)
             _isTurboEnabled = true
         } else {
             disableTurboMode()

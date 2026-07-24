@@ -64,6 +64,7 @@ class MainScreenViewModelTest {
     private val modelStateFlow = MutableStateFlow<ModelManager.ModelState>(ModelManager.ModelState.NotLoaded)
     private val gpuFallbackReasonFlow = MutableStateFlow<ModelManager.GpuFallbackReason?>(null)
     private val turboFallbackReasonFlow = MutableStateFlow<ModelManager.TurboFallbackReason?>(null)
+    private val modelFallbackReasonFlow = MutableStateFlow<ModelManager.ModelFallbackReason?>(null)
     private val playbackStateFlow = MutableStateFlow(PlaybackState())
 
     @Before
@@ -77,6 +78,7 @@ class MainScreenViewModelTest {
             every { modelState } returns modelStateFlow
             every { gpuFallbackReason } returns gpuFallbackReasonFlow
             every { turboFallbackReason } returns turboFallbackReasonFlow
+            every { modelFallbackReason } returns modelFallbackReasonFlow
             coEvery { loadModel(any()) } returns Result.success(Unit)
         }
 

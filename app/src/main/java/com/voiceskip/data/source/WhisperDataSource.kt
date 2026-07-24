@@ -20,9 +20,10 @@ interface WhisperDataSource {
 
     fun loadModel(
         assets: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String? = null,
-        useGpu: Boolean = true
+        useGpu: Boolean = true,
+        modelFd: Int = -1
     )
 
     fun startStream(
@@ -40,6 +41,6 @@ interface WhisperDataSource {
     fun destroy()
 
     val isTurboEnabled: Boolean
-    fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String, vadModelPath: String?)
+    fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int = -1)
     fun disableTurboMode()
 }

@@ -277,7 +277,7 @@ class TranscriptionRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun loadModel(assets: AssetManager, modelPath: String, vadModelPath: String?, useGpu: Boolean, forceReload: Boolean): Result<String?> = runCatching {
+    override suspend fun loadModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, useGpu: Boolean, forceReload: Boolean, modelFd: Int): Result<String?> = runCatching {
         if (!forceReload && _isModelLoaded) {
             VoiceSkipLogger.d("Model already loaded, skipping (forceReload=$forceReload)")
             return@runCatching null
@@ -290,11 +290,20 @@ class TranscriptionRepositoryImpl @Inject constructor(
 
         ensureEventCollectorRunning()
 
-        whisperDataSource.loadModel(assets, modelPath, vadModelPath = vadModelPath, useGpu = useGpu)
-
-        val event = whisperDataSource.events.first {
-            it is TranscriptionEvent.ModelLoaded || it is TranscriptionEvent.Error
-        }
+        val event = submitAndAwaitModelEvent(
+            submit = {
+                whisperDataSource.loadModel(
+                    assets,
+                    modelPath,
+                    vadModelPath = vadModelPath,
+                    useGpu = useGpu,
+                    modelFd = modelFd
+                )
+            },
+            predicate = {
+                it is TranscriptionEvent.ModelLoaded || it is TranscriptionEvent.Error
+            }
+        )
         when (event) {
             is TranscriptionEvent.ModelLoaded -> {
                 _isModelLoaded = true
@@ -381,8 +390,8 @@ class TranscriptionRepositoryImpl @Inject constructor(
 
     override fun isModelLoaded(): Boolean = _isModelLoaded
 
-    override suspend fun loadTurboModel(assets: AssetManager, modelPath: String, vadModelPath: String?): Result<Unit> = runCatching {
-        whisperDataSource.setTurboMode(true, assets, modelPath, vadModelPath)
+    override suspend fun loadTurboModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int): Result<Unit> = runCatching {
+        whisperDataSource.setTurboMode(true, assets, modelPath, vadModelPath, modelFd)
         whisperDataSource.events.first { it is TranscriptionEvent.ModelLoaded && it.turbo }
     }
 
@@ -391,6 +400,13 @@ class TranscriptionRepositoryImpl @Inject constructor(
     }
 
     override fun isTurboModelLoaded(): Boolean = whisperDataSource.isTurboEnabled
+
+    private suspend fun submitAndAwaitModelEvent(
+        submit: () -> Unit,
+        predicate: suspend (TranscriptionEvent) -> Boolean
+    ): TranscriptionEvent = whisperDataSource.events
+        .onSubscription { submit() }
+        .first(predicate)
 
     private fun getEffectiveThreadCount(settingsThreads: Int): Int =
         if (isTurboModelLoaded()) UserPreferences.getTurboCpuThreads() else settingsThreads

@@ -31,6 +31,7 @@ class UserPreferences(private val context: Context) {
         private val DEFAULT_LANGUAGE_KEY = stringPreferencesKey("default_language")
         private const val KEY_GPU_IN_PROGRESS = "gpu_in_progress"
         private const val KEY_TURBO_LOAD_IN_PROGRESS = "turbo_load_in_progress"
+        private const val KEY_CUSTOM_MODEL_LOAD_IN_PROGRESS = "custom_model_load_in_progress"
         private val TURBO_MODE_KEY = booleanPreferencesKey("turbo_mode")
         private val TURBO_MODE_SET_KEY = booleanPreferencesKey("turbo_mode_set")
         private val VAD_ENABLED_KEY = booleanPreferencesKey("vad_enabled")
@@ -276,6 +277,14 @@ class UserPreferences(private val context: Context) {
 
     fun isTurboLoadInProgress(): Boolean {
         return crashPrefs.getBoolean(KEY_TURBO_LOAD_IN_PROGRESS, false)
+    }
+
+    fun setCustomModelLoadInProgress(inProgress: Boolean) {
+        crashPrefs.edit().putBoolean(KEY_CUSTOM_MODEL_LOAD_IN_PROGRESS, inProgress).commit()
+    }
+
+    fun isCustomModelLoadInProgress(): Boolean {
+        return crashPrefs.getBoolean(KEY_CUSTOM_MODEL_LOAD_IN_PROGRESS, false)
     }
 
     fun shouldAutoEnableTurboForDevice(): Boolean = shouldAutoEnableTurbo(context)

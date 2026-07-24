@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -380,13 +381,30 @@ class TranscriptionRepositoryImplTest {
 
     @Test
     fun `loadModel returns failure when datasource throws`() = runTest {
-        fakeWhisperDataSource.loadModelShouldEmitLoaded = false
         fakeWhisperDataSource.loadModelResult = Result.failure(RuntimeException("Load failed"))
 
         val result = repository.loadModel(mockAssets, "models/test.bin", vadModelPath = null, useGpu = true)
 
         assertThat(result.isFailure).isTrue()
         assertThat(fakeWhisperDataSource.loadModelCalled).isTrue()
+    }
+
+    @Test
+    fun `loadModel handles error emitted while load is submitted`() = runTest {
+        fakeWhisperDataSource.modelEventOnLoad =
+            TranscriptionEvent.Error("Invalid model file")
+
+        val result = withTimeout(1_000) {
+            repository.loadModel(
+                mockAssets,
+                modelPath = null,
+                vadModelPath = null,
+                useGpu = true,
+                modelFd = 42
+            )
+        }
+
+        assertThat(result.exceptionOrNull()?.message).isEqualTo("Invalid model file")
     }
 
     @Test
