@@ -129,32 +129,40 @@ class WhisperContext private constructor(
     }
 
     /**
-     * Load model from asset in a background thread (C-side pthread)
+     * Load model in a background thread (C-side pthread)
      * The loadedCallback will be invoked when loading completes
      *
-     * @param assetManager Android AssetManager for loading model files
-     * @param modelPath Path to the model file within assets
-     * @param vadModelPath Optional path to VAD model for silence detection
+     * @param assetManager Android AssetManager (used for the bundled VAD model and asset-based main models)
+     * @param modelPath Asset path of the model, or null when loading from [modelFd]
+     * @param vadModelPath Optional asset path to VAD model for silence detection
      * @param useGpu Whether to use GPU acceleration (Vulkan)
+     * @param modelFd File descriptor to load the main model from (an imported model), or -1 to use [modelPath].
+     *   The caller must keep the fd open until loading completes; native dups it internally.
      */
     fun loadModel(
         assetManager: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String? = null,
-        useGpu: Boolean = true
+        useGpu: Boolean = true,
+        modelFd: Int = -1
     ) {
         require(mInstance != 0L) { "WhisperContext not initialized" }
-        Log.d(LOG_TAG, "Loading model: $modelPath, vadModel: $vadModelPath, useGpu: $useGpu")
-        nativeLoadModel(assetManager, modelPath, vadModelPath, useGpu)
+        Log.d(LOG_TAG, "Loading model: ${modelPath ?: "(fd $modelFd)"}, vadModel: $vadModelPath, useGpu: $useGpu")
+        nativeLoadModel(assetManager, modelPath, vadModelPath, useGpu, modelFd)
     }
 
     /**
      * Load a second model for turbo mode (parallel CPU+GPU processing)
      */
-    fun loadSecondModel(assetManager: AssetManager, modelPath: String, vadModelPath: String?) {
+    fun loadSecondModel(
+        assetManager: AssetManager,
+        modelPath: String?,
+        vadModelPath: String?,
+        modelFd: Int = -1
+    ) {
         require(mInstance != 0L) { "WhisperContext not initialized" }
-        Log.d(LOG_TAG, "Loading second model for turbo: $modelPath, vad: $vadModelPath")
-        nativeLoadSecondModel(assetManager, modelPath, vadModelPath)
+        Log.d(LOG_TAG, "Loading second model for turbo: ${modelPath ?: "(fd $modelFd)"}, vad: $vadModelPath")
+        nativeLoadSecondModel(assetManager, modelPath, vadModelPath, modelFd)
     }
 
     /**
@@ -163,7 +171,7 @@ class WhisperContext private constructor(
     fun unloadSecondModel() {
         require(mInstance != 0L) { "WhisperContext not initialized" }
         Log.d(LOG_TAG, "Unloading second model")
-        nativeLoadSecondModel(null, null, null)
+        nativeLoadSecondModel(null, null, null, -1)
     }
 
     /**
@@ -232,11 +240,17 @@ class WhisperContext private constructor(
     private external fun nativeCreate(): Long
     private external fun nativeLoadModel(
         assetManager: AssetManager,
-        modelPath: String,
+        modelPath: String?,
         vadModelPath: String?,
-        useGpu: Boolean
+        useGpu: Boolean,
+        modelFd: Int
     )
-    private external fun nativeLoadSecondModel(assetManager: AssetManager?, modelPath: String?, vadModelPath: String?)
+    private external fun nativeLoadSecondModel(
+        assetManager: AssetManager?,
+        modelPath: String?,
+        vadModelPath: String?,
+        modelFd: Int
+    )
     private external fun nativeStart(
         numThreads: Int,
         language: String?,

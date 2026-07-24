@@ -144,6 +144,8 @@ struct model_load_args
     char *vad_model_path;
     jobject asset_manager;
     bool use_gpu;
+    /* Owned duplicate, so queued loads remain valid after the JVM closes its fd. */
+    int model_fd;
 };
 
 struct start_args
@@ -213,6 +215,7 @@ model_load_args_init(struct model_load_args *args)
     args->vad_model_path = NULL;
     args->asset_manager = NULL;
     args->use_gpu = false;
+    args->model_fd = -1;
 }
 
 static void
@@ -220,10 +223,27 @@ model_load_args_clean(struct model_load_args *args, JNIEnv *env)
 {
     free(args->model_path);
     free(args->vad_model_path);
+    if (args->model_fd >= 0)
+    {
+        close(args->model_fd);
+        args->model_fd = -1;
+    }
     if (args->asset_manager && env)
     {
         (*env)->DeleteGlobalRef(env, args->asset_manager);
     }
+}
+
+static bool
+model_load_args_dup_fd(struct model_load_args *args, int model_fd)
+{
+    if (model_fd < 0)
+    {
+        return true;
+    }
+
+    args->model_fd = dup(model_fd);
+    return args->model_fd >= 0;
 }
 
 static void
@@ -385,6 +405,33 @@ asset_close(void *ctx)
     AAsset_close((AAsset *) ctx);
 }
 
+/* File-descriptor loader for imported models. Mirrors whisper's own file loader
+ * (fread/feof/fclose) so a referenced content:// document loads exactly like a
+ * bundled asset does. The FILE* owns a dup of the JVM fd and closes it on close. */
+static size_t
+file_read(void *ctx, void *output, size_t read_size)
+{
+    FILE *file = ctx;
+
+    return fread(output, 1, read_size, file);
+}
+
+static bool
+file_is_eof(void *ctx)
+{
+    FILE *file = ctx;
+
+    return feof(file) != 0;
+}
+
+static void
+file_close(void *ctx)
+{
+    FILE *file = ctx;
+
+    fclose(file);
+}
+
 static bool
 is_gpu_blocklisted(const char *desc)
 {
@@ -420,14 +467,16 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
         slot->vad_ctx = NULL;
     }
 
-    if (!args->model_path)
+    if (!args->model_path && args->model_fd < 0)
     {
         LOGI("[%s] Unloaded", slot_name);
         return;
     }
 
-    LOGI("[%s] Loading %s", slot_name, args->model_path);
+    LOGI("[%s] Loading %s", slot_name,
+         args->model_fd >= 0 ? "(fd)" : args->model_path);
 
+    /* Needed for the asset-based main model and always for the bundled VAD */
     AAssetManager *asset_manager = AAssetManager_fromJava(env, args->asset_manager);
     if (!asset_manager)
     {
@@ -435,32 +484,57 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
         return;
     }
 
-    AAsset *asset = AAssetManager_open(asset_manager, args->model_path,
-                                       AASSET_MODE_STREAMING);
-    if (!asset)
-    {
-        report_error(env, ctx,
-            "Failed to open %s model '%s' from assets", slot_name, args->model_path);
-        return;
-    }
-
-    whisper_model_loader loader = {
-        .context = asset,
-        .read = &asset_read,
-        .eof = &asset_is_eof,
-        .close = &asset_close
-    };
-
     struct whisper_context_params cparams = whisper_context_default_params();
     cparams.flash_attn = cparams.use_gpu = args->use_gpu;
     cparams.gpu_device = 0;
 
-    slot->ctx = whisper_init_with_params(&loader, cparams);
+    if (args->model_fd >= 0)
+    {
+        int model_fd = args->model_fd;
+        args->model_fd = -1;
+        FILE *file = fdopen(model_fd, "rb");
+        if (!file)
+        {
+            close(model_fd);
+            report_error(env, ctx,
+                "Failed to open %s model from file descriptor", slot_name);
+            return;
+        }
+
+        whisper_model_loader loader = {
+            .context = file,
+            .read = &file_read,
+            .eof = &file_is_eof,
+            .close = &file_close
+        };
+
+        slot->ctx = whisper_init_with_params(&loader, cparams);
+    }
+    else
+    {
+        AAsset *asset = AAssetManager_open(asset_manager, args->model_path,
+                                           AASSET_MODE_STREAMING);
+        if (!asset)
+        {
+            report_error(env, ctx,
+                "Failed to open %s model '%s' from assets", slot_name, args->model_path);
+            return;
+        }
+
+        whisper_model_loader loader = {
+            .context = asset,
+            .read = &asset_read,
+            .eof = &asset_is_eof,
+            .close = &asset_close
+        };
+
+        slot->ctx = whisper_init_with_params(&loader, cparams);
+    }
+
     if (!slot->ctx)
     {
         report_error(env, ctx,
-            "Failed to load %s model '%s': initialization failed",
-            slot_name, args->model_path);
+            "Failed to load %s model: initialization failed", slot_name);
         return;
     }
 
@@ -926,7 +1000,8 @@ nativeCreate(JNIEnv *env, jobject thiz)
 
 static void
 nativeLoadModel(JNIEnv *env, jobject thiz, jobject asset_manager,
-                jstring model_path, jstring vad_model_path, jboolean use_gpu)
+                jstring model_path, jstring vad_model_path, jboolean use_gpu,
+                jint model_fd)
 {
     struct whisper_jni_context *ctx = get_jni_context(env, thiz);
     if (!ctx)
@@ -936,10 +1011,12 @@ nativeLoadModel(JNIEnv *env, jobject thiz, jobject asset_manager,
         return;
     }
 
-    if (!model_path || !asset_manager)
+    /* The model is identified by an asset path or a file descriptor; the asset
+     * manager is always needed for the bundled VAD model. */
+    if ((!model_path && model_fd < 0) || !asset_manager)
     {
         (*env)->ThrowNew(env, g_class_illegal_argument,
-                         "model_path and asset_manager must not be null");
+                         "a model (path or fd) and asset_manager must not be null");
         return;
     }
 
@@ -947,12 +1024,23 @@ nativeLoadModel(JNIEnv *env, jobject thiz, jobject asset_manager,
     model_load_args_init(&args);
     args.ctx = ctx;
 
-    args.model_path = jni_strdup(env, model_path);
-    if (!args.model_path)
+    if (!model_load_args_dup_fd(&args, model_fd))
     {
-        (*env)->ThrowNew(env, g_class_out_of_memory,
-                         "Failed to allocate memory for model path");
+        (*env)->ThrowNew(env, g_class_illegal_state,
+                         "Failed to duplicate model file descriptor");
         return;
+    }
+
+    if (model_path)
+    {
+        args.model_path = jni_strdup(env, model_path);
+        if (!args.model_path)
+        {
+            (*env)->ThrowNew(env, g_class_out_of_memory,
+                             "Failed to allocate memory for model path");
+            model_load_args_clean(&args, env);
+            return;
+        }
     }
 
     args.vad_model_path = jni_strdup(env, vad_model_path);
@@ -978,7 +1066,8 @@ nativeLoadModel(JNIEnv *env, jobject thiz, jobject asset_manager,
     }
 
     LOGI("Queuing model load command for: %s, VAD: %s, GPU: %s",
-         args.model_path, args.vad_model_path ? args.vad_model_path : "none",
+         args.model_path ? args.model_path : "(fd)",
+         args.vad_model_path ? args.vad_model_path : "none",
          use_gpu ? "enabled" : "disabled");
 
     pthread_mutex_lock(&ctx->mutex);
@@ -989,7 +1078,8 @@ nativeLoadModel(JNIEnv *env, jobject thiz, jobject asset_manager,
 
 static void
 nativeLoadSecondModel(JNIEnv *env, jobject thiz, jobject asset_manager,
-                      jstring model_path, jstring vad_model_path)
+                      jstring model_path, jstring vad_model_path,
+                      jint model_fd)
 {
     struct whisper_jni_context *ctx = get_jni_context(env, thiz);
     if (!ctx)
@@ -999,8 +1089,9 @@ nativeLoadSecondModel(JNIEnv *env, jobject thiz, jobject asset_manager,
         return;
     }
 
-    /* NULL model_path = unload, but still need asset_manager for load */
-    if (model_path && !asset_manager)
+    /* No model path and no fd = unload; otherwise load (needs asset_manager for VAD) */
+    bool loading = (model_path != NULL) || (model_fd >= 0);
+    if (loading && !asset_manager)
     {
         (*env)->ThrowNew(env, g_class_illegal_argument,
                          "asset_manager must not be null when loading");
@@ -1011,14 +1102,25 @@ nativeLoadSecondModel(JNIEnv *env, jobject thiz, jobject asset_manager,
     model_load_args_init(&args);
     args.ctx = ctx;
 
-    if (model_path)
+    if (loading)
     {
-        args.model_path = jni_strdup(env, model_path);
-        if (!args.model_path)
+        if (!model_load_args_dup_fd(&args, model_fd))
         {
-            (*env)->ThrowNew(env, g_class_out_of_memory,
-                             "Failed to allocate memory for model path");
+            (*env)->ThrowNew(env, g_class_illegal_state,
+                             "Failed to duplicate model file descriptor");
             return;
+        }
+
+        if (model_path)
+        {
+            args.model_path = jni_strdup(env, model_path);
+            if (!args.model_path)
+            {
+                (*env)->ThrowNew(env, g_class_out_of_memory,
+                                 "Failed to allocate memory for model path");
+                model_load_args_clean(&args, env);
+                return;
+            }
         }
 
         args.vad_model_path = jni_strdup(env, vad_model_path);
@@ -1045,10 +1147,7 @@ nativeLoadSecondModel(JNIEnv *env, jobject thiz, jobject asset_manager,
     cmd->args.load_model = args;
     cmd->next = NULL;
 
-    LOGI("Queuing second model %s command%s%s",
-         model_path ? "load" : "unload",
-         args.model_path ? " for: " : "",
-         args.model_path ? args.model_path : "");
+    LOGI("Queuing second model %s command", loading ? "load" : "unload");
 
     pthread_mutex_lock(&ctx->mutex);
     enqueue_command_node(ctx, cmd);
@@ -1232,10 +1331,10 @@ JNI_OnLoad(JavaVM *vm, void *reserved)
     static const JNINativeMethod whisper_context_methods[] = {
         {"nativeCreate", "()J", (void*)nativeCreate},
         {"nativeLoadModel",
-         "(Landroid/content/res/AssetManager;Ljava/lang/String;Ljava/lang/String;Z)V",
+         "(Landroid/content/res/AssetManager;Ljava/lang/String;Ljava/lang/String;ZI)V",
          (void*)nativeLoadModel},
         {"nativeLoadSecondModel",
-         "(Landroid/content/res/AssetManager;Ljava/lang/String;Ljava/lang/String;)V",
+         "(Landroid/content/res/AssetManager;Ljava/lang/String;Ljava/lang/String;I)V",
          (void*)nativeLoadSecondModel},
         {"nativeStart", "(ILjava/lang/String;ZZZ)V", (void*)nativeStart},
         {"nativeStop", "()V", (void*)nativeStop},
