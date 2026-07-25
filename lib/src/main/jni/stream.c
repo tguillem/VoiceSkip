@@ -619,7 +619,12 @@ process_one_chunk(struct thread_ctx *tctx)
     params.abort_callback_user_data = cctx;
     params.no_context = true;  /* context provided via callback */
 
-    if (ci.overlap_offset > 0)
+    /* whisper_full replaces the samples with the VAD-retained speech but leaves
+     * offset_ms untouched, so it seeks that far into the compressed timeline and
+     * can drop most of the chunk. Re-transcribing the overlap is the lesser evil:
+     * stream_segment_callback clamps t0 to output_start, so the repeated audio
+     * cannot back-date timestamps into the previous chunk. */
+    if (ci.overlap_offset > 0 && !cctx->vad_enabled)
         params.offset_ms = (ci.overlap_offset * 1000) / WHISPER_SAMPLE_RATE;
 
     if (chunk_idx > 0)
