@@ -73,6 +73,7 @@ Example with custom settings:
 - `lib/` - whisper.cpp JNI bindings
   - `lib/src/main/jni/` - C/JNI code
   - whisper.cpp fetched via CMake FetchContent
+- `models_pack/` - Whisper + VAD models (install-time Play asset pack)
 
 ## AI
 
