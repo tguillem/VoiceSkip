@@ -1,5 +1,18 @@
 1.0.3
 =====
+Google Pixel 10a:`
+ - CPU: Octa-core (1x3.1 GHz Cortex-X4 & 3x2.6 GHz Cortex-A720 & 4x1.9 GHz Cortex-A520)
+ - GPU: Mali-G715 MP7 | Vulkan 1.2
+ - libwhisper_v8fp16_dotprod.so
+
+07-25 20:20:34.171 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU background vad | load=1693ms | transcribe=113879ms | RTF=0,42x
+07-25 20:23:45.991 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU background vad | load=4664ms | transcribe=186966ms | RTF=0,68x
+07-25 20:25:21.413 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO background vad | load=6011ms | transcribe=89111ms | RTF=0,33x
+07-25 20:26:48.671 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | CPU foreground vad | load=1529ms | transcribe=84706ms | RTF=0,31x
+07-25 20:29:53.220 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 1 threads | GPU foreground vad | load=3089ms | transcribe=181308ms | RTF=0,66x
+07-25 20:31:26.744 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO foreground vad | load=6044ms | transcribe=87174ms | RTF=0,32x
+07-25 20:34:07.824 11778 11792 I WhisperBenchmark: BENCHMARK: small | 273287ms | 8 threads | TURBO foreground novad | load=6875ms | transcribe=153850ms | RTF=0,56x
+
 V2144:
  - CPU: Octa-core (1x3.05 GHz Cortex-X2 & 3x2.85 GHz Cortex-A710 & 4x1.80 GHz Cortex-A510)
  - GPU: Mali-G710 MC10 | Vulkan 1.1
