@@ -63,7 +63,7 @@ struct whisper_stream_params
 };
 
 struct whisper_stream_params
-whisper_stream_default_params(void);
+whisper_stream_default_params(bool live);
 
 /* Process audio in chunks, splitting at silence boundaries.
  * stream_params.ctx1 enables parallel processing (NULL for single context).

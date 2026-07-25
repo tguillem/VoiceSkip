@@ -275,8 +275,14 @@ usage(const char *prog)
     fprintf(stderr, "      --no-gpu          Disable GPU\n");
     fprintf(stderr, "  -v, --vad-model PATH  VAD model\n");
     fprintf(stderr, "  -d, --debug           Enable debug output\n");
-    fprintf(stderr, "  -L, --live            Live mode (5s min, 10s extend, 200ms silence)\n");
+    fprintf(stderr, "  -L, --live            Live mode (10s min chunk, 20s extend)\n");
     fprintf(stderr, "      --no-vad          Disable internal VAD\n");
+    fprintf(stderr, "Tuning overrides (default: mode value from stream.c):\n");
+    fprintf(stderr, "      --vad-threshold F   Silero speech probability cutoff\n");
+    fprintf(stderr, "      --min-chunk-ms N    Chunk length before silence search\n");
+    fprintf(stderr, "      --chunk-extend-ms N Extra time to search for silence\n");
+    fprintf(stderr, "      --overlap-ms N      Audio replayed at chunk start\n");
+    fprintf(stderr, "      --min-silence-ms N  Gap that counts as a boundary\n");
 }
 
 static int
@@ -329,17 +335,29 @@ main(int argc, char **argv)
     bool live = false;
     bool vad_enabled = true;
 
+    /* Negative means "keep whatever the mode default is" */
+    float opt_vad_threshold = -1;
+    int opt_min_chunk_ms = -1;
+    int opt_chunk_extend_ms = -1;
+    int opt_overlap_ms = -1;
+    int opt_min_silence_ms = -1;
+
     static struct option long_opts[] = {
-        {"model",     required_argument, 0, 'm'},
-        {"file",      required_argument, 0, 'f'},
-        {"stream",    required_argument, 0, 's'},
-        {"language",  required_argument, 0, 'l'},
-        {"threads",   required_argument, 0, 't'},
-        {"no-gpu",    no_argument,       0, 'g'},
-        {"vad-model", required_argument, 0, 'v'},
-        {"debug",     no_argument,       0, 'd'},
-        {"live",      no_argument,       0, 'L'},
-        {"no-vad",    no_argument,       0, 'V'},
+        {"model",           required_argument, 0, 'm'},
+        {"file",            required_argument, 0, 'f'},
+        {"stream",          required_argument, 0, 's'},
+        {"language",        required_argument, 0, 'l'},
+        {"threads",         required_argument, 0, 't'},
+        {"no-gpu",          no_argument,       0, 'g'},
+        {"vad-model",       required_argument, 0, 'v'},
+        {"debug",           no_argument,       0, 'd'},
+        {"live",            no_argument,       0, 'L'},
+        {"no-vad",          no_argument,       0, 'V'},
+        {"vad-threshold",   required_argument, 0, 'T'},
+        {"min-chunk-ms",    required_argument, 0, 'C'},
+        {"chunk-extend-ms", required_argument, 0, 'E'},
+        {"overlap-ms",      required_argument, 0, 'O'},
+        {"min-silence-ms",  required_argument, 0, 'S'},
         {0, 0, 0, 0}
     };
 
@@ -358,6 +376,11 @@ main(int argc, char **argv)
         case 'd': debug = true; break;
         case 'L': live = true; break;
         case 'V': vad_enabled = false; break;
+        case 'T': opt_vad_threshold = atof(optarg); break;
+        case 'C': opt_min_chunk_ms = atoi(optarg); break;
+        case 'E': opt_chunk_extend_ms = atoi(optarg); break;
+        case 'O': opt_overlap_ms = atoi(optarg); break;
+        case 'S': opt_min_silence_ms = atoi(optarg); break;
         default:
             usage(argv[0]);
             return 1;
@@ -413,7 +436,7 @@ main(int argc, char **argv)
     wparams.language = language;
     wparams.suppress_nst = true;
 
-    struct whisper_stream_params sparams = whisper_stream_default_params();
+    struct whisper_stream_params sparams = whisper_stream_default_params(live);
     sparams.read_callback = file_read_cb;
     sparams.read_callback_user_data = &fctx;
     sparams.segment_callback = segment_cb;
@@ -426,19 +449,25 @@ main(int argc, char **argv)
     sparams.slots[1].ctx = ctx1;
     sparams.slots[1].vad_ctx = vad_ctx1;
     sparams.slots[1].num_threads = n_threads;
-    if (live)
-    {
-        sparams.vad_threshold = 0.5;
-        sparams.min_chunk_ms = 10000;
-        sparams.chunk_extend_ms = 20000;
-    }
-    else
-    {
-        sparams.vad_threshold = 0.25;
-        sparams.min_chunk_ms = 30000;
-        sparams.chunk_extend_ms = 30000;
-    }
     sparams.vad_enabled = vad_enabled;
+
+    if (opt_vad_threshold >= 0)
+        sparams.vad_threshold = opt_vad_threshold;
+    if (opt_min_chunk_ms > 0)
+        sparams.min_chunk_ms = opt_min_chunk_ms;
+    if (opt_chunk_extend_ms >= 0)
+        sparams.chunk_extend_ms = opt_chunk_extend_ms;
+    if (opt_overlap_ms >= 0)
+        sparams.overlap_ms = opt_overlap_ms;
+    if (opt_min_silence_ms >= 0)
+        sparams.min_silence_ms = opt_min_silence_ms;
+
+    fprintf(stderr,
+            "params: vad=%d threshold=%.3f min_chunk=%dms extend=%dms "
+            "overlap=%dms min_silence=%dms\n",
+            sparams.vad_enabled, sparams.vad_threshold, sparams.min_chunk_ms,
+            sparams.chunk_extend_ms, sparams.overlap_ms,
+            sparams.min_silence_ms);
 
     ret = whisper_stream_full(wparams, sparams);
 

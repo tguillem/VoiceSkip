@@ -777,7 +777,7 @@ cleanup_common_ctx(struct common_ctx *cctx)
 }
 
 struct whisper_stream_params
-whisper_stream_default_params(void)
+whisper_stream_default_params(bool live)
 {
     struct whisper_stream_params params;
     params.slots[0].ctx = NULL;
@@ -786,11 +786,22 @@ whisper_stream_default_params(void)
     params.slots[1].ctx = NULL;
     params.slots[1].vad_ctx = NULL;
     params.slots[1].num_threads = 8;
-    params.min_chunk_ms = 30000;
-    params.chunk_extend_ms = 20000;
+    /* Live mode trades decoding context for latency: emit after 10s of audio
+     * instead of waiting for a 30s chunk to fill. */
+    if (live)
+    {
+        params.min_chunk_ms = 10000;
+        params.chunk_extend_ms = 20000;
+        params.vad_threshold = 0.5f;
+    }
+    else
+    {
+        params.min_chunk_ms = 30000;
+        params.chunk_extend_ms = 30000;
+        params.vad_threshold = 0.25f;
+    }
     params.overlap_ms = 300;
     params.min_silence_ms = 300;
-    params.vad_threshold = 0.5f;
     params.vad_enabled = true;
     params.read_callback = NULL;
     params.read_callback_user_data = NULL;

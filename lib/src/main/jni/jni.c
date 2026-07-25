@@ -763,7 +763,8 @@ process_start_command(struct whisper_jni_context *ctx,
     wparams.translate = args->translate;
     wparams.language = args->language ? args->language : "auto";
 
-    struct whisper_stream_params sparams = whisper_stream_default_params();
+    struct whisper_stream_params sparams =
+        whisper_stream_default_params(args->live);
     sparams.read_callback = jni_read_callback;
     sparams.read_callback_user_data = ctx;
     sparams.segment_callback = jni_segment_callback;
@@ -775,18 +776,6 @@ process_start_command(struct whisper_jni_context *ctx,
     sparams.abort_callback = whisper_abort_callback_impl;
     sparams.abort_callback_user_data = ctx;
     sparams.vad_enabled = args->vad_enabled;
-    if (args->live)
-    {
-        sparams.vad_threshold = 0.5;
-        sparams.min_chunk_ms = 10000;
-        sparams.chunk_extend_ms = 20000;
-    }
-    else
-    {
-        sparams.vad_threshold = 0.25;
-        sparams.min_chunk_ms = 30000;
-        sparams.chunk_extend_ms = 30000;
-    }
     sparams.slots[0] = ctx->slots[SLOT_MAIN];
     sparams.slots[0].num_threads = ctx->use_gpu ? 1 : args->num_threads;
     sparams.slots[1] = ctx->slots[SLOT_SECOND];
