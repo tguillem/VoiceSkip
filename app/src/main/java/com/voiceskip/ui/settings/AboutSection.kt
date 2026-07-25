@@ -244,7 +244,7 @@ private fun OssLicensesDialog(onDismiss: () -> Unit) {
                 )
 
                 Spacer(modifier = Modifier.height(Spacing.large))
-                Divider()
+                HorizontalDivider()
                 Spacer(modifier = Modifier.height(Spacing.large))
 
                 Text(
