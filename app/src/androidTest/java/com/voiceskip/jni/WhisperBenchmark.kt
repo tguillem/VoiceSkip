@@ -8,8 +8,8 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.voiceskip.MainActivity
-import com.voiceskip.data.UserPreferences
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSourceImpl
 import com.voiceskip.media.FileAudioProvider
 import com.voiceskip.util.WakeLockManager
@@ -159,7 +159,10 @@ class WhisperBenchmark {
 
         whisperDataSource!!.startStream(
             audioProvider = audioProvider,
-            numThreads = threads,
+            threadCounts = TranscriptionThreadCounts(
+                standard = threads,
+                turbo = threads
+            ),
             language = "en",
             translate = false,
             vadEnabled = vadEnabled

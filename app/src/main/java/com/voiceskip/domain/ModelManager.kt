@@ -8,6 +8,7 @@ import android.util.Log
 import com.voiceskip.data.ErrorHandler
 import com.voiceskip.data.UserPreferences
 import com.voiceskip.data.repository.ModelRepository
+import com.voiceskip.data.repository.SettingsRepository
 import com.voiceskip.data.repository.TranscriptionRepository
 import com.voiceskip.ui.main.FileManager
 import com.voiceskip.util.VoiceSkipLogger
@@ -26,6 +27,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import javax.inject.Inject
+import javax.inject.Singleton
 
 private const val LOG_TAG = "ModelManager"
 private const val REFERENCE_SCHEME = "content://"
@@ -37,9 +40,11 @@ private data class ObservedModelSettings(
     val reloadGeneration: Long
 )
 
-class ModelManager(
+@Singleton
+class ModelManager @Inject constructor(
     private val repository: TranscriptionRepository,
     private val modelRepository: ModelRepository,
+    private val settingsRepository: SettingsRepository,
     private val userPreferences: UserPreferences,
     private val fileManager: FileManager
 ) {
@@ -154,7 +159,12 @@ class ModelManager(
             if (userPreferences.isTurboLoadInProgress()) {
                 VoiceSkipLogger.w("Previous turbo CPU load crashed, disabling turbo mode")
                 userPreferences.setTurboLoadInProgress(false)
-                userPreferences.setTurboModeEnabled(false)
+                // Recording the choice is what stops maybeAutoEnableTurbo() from switching
+                // turbo straight back on later in this same call and re-crashing.
+                settingsRepository.updateTurboModeEnabled(
+                    enabled = false,
+                    isUserAction = true
+                ).getOrThrow()
                 _turboFallbackReason.value = TurboFallbackReason.CRASH
             }
 
@@ -266,9 +276,11 @@ class ModelManager(
 
             if (repository.isTurboModelLoaded()) {
                 VoiceSkipLogger.i("Reloading turbo CPU model: $modelId")
-                userPreferences.setTurboLoadInProgress(true)
-                withModelSource(modelId) { mp, fd -> repository.loadTurboModel(assets, mp, vadModelPath, fd) }
-                userPreferences.setTurboLoadInProgress(false)
+                val failure = loadTurboModel(assets, modelId, vadModelPath).exceptionOrNull()
+                if (failure != null) {
+                    disableTurboSettingAfterFailure()
+                    VoiceSkipLogger.e("Failed to reload turbo CPU model", failure)
+                }
             }
 
             maybeAutoEnableTurbo(assets, modelId, vadModelPath, gpuInfo)
@@ -278,55 +290,99 @@ class ModelManager(
             onSuccess = { Result.success(Unit) },
             onFailure = { exception ->
                 userPreferences.setGpuInProgress(false)
+                if (exception is CancellationException) {
+                    // ModelManager is a singleton and outlives the cancelled scope, so a
+                    // leftover Loading state would make the next loadModel() hit the
+                    // "already loading" guard and skip a load that will never happen.
+                    if (_modelState.value is ModelState.Loading) {
+                        _modelState.value = ModelState.NotLoaded
+                    }
+                    finishImportedModelLoad()
+                    throw exception
+                }
                 val whisperError = ErrorHandler.handleError(exception)
                 ErrorHandler.logError(LOG_TAG, whisperError, critical = false)
                 VoiceSkipLogger.e("Failed to initialize model loading", whisperError)
                 _modelState.value = ModelState.Error(whisperError)
                 Result.failure(whisperError)
             }
-        ).also { finishImportedModelLoad() }
+        ).also {
+            finishImportedModelLoad()
+        }
     }
 
     fun isModelLoaded(): Boolean = _modelState.value is ModelState.Loaded
 
     suspend fun updateTurboMode(assets: AssetManager, enabled: Boolean): Result<Unit> {
-        return runCatching {
-            val currentState = _modelState.value
-            if (currentState !is ModelState.Loaded) {
-                VoiceSkipLogger.w("Cannot update turbo mode: model not loaded")
-                return@runCatching
-            }
-
+        return try {
             if (enabled) {
+                val currentState = _modelState.value
+                if (currentState !is ModelState.Loaded) {
+                    VoiceSkipLogger.w("Cannot enable turbo mode: model not loaded")
+                    return Result.success(Unit)
+                }
                 if (!repository.isTurboModelLoaded()) {
                     val vadModelPath = userPreferences.getVadModelPath()
                     VoiceSkipLogger.i("Loading CPU model for turbo mode: ${currentState.modelId}")
-                    userPreferences.setTurboLoadInProgress(true)
-                    withModelSource(currentState.modelId) { mp, fd ->
-                        repository.loadTurboModel(assets, mp, vadModelPath, fd)
-                    }
-                    userPreferences.setTurboLoadInProgress(false)
+                    loadTurboModel(assets, currentState.modelId, vadModelPath).getOrThrow()
                     VoiceSkipLogger.i("CPU model loaded for turbo mode")
                 }
             } else {
                 if (repository.isTurboModelLoaded()) {
                     VoiceSkipLogger.i("Destroying CPU model (turbo mode disabled)")
-                    repository.unloadTurboModel()
+                    repository.unloadTurboModel().getOrThrow()
                 }
             }
-        }.fold(
-            onSuccess = { Result.success(Unit) },
-            onFailure = { exception ->
-                userPreferences.setTurboLoadInProgress(false)
-                val whisperError = ErrorHandler.handleError(exception)
-                ErrorHandler.logError(LOG_TAG, whisperError, critical = false)
-                VoiceSkipLogger.e("Failed to update turbo mode", whisperError)
-                Result.failure(whisperError)
-            }
-        )
+            Result.success(Unit)
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            disableTurboSettingAfterFailure()
+            val whisperError = ErrorHandler.handleError(exception)
+            ErrorHandler.logError(LOG_TAG, whisperError, critical = false)
+            VoiceSkipLogger.e("Failed to update turbo mode", whisperError)
+            Result.failure(whisperError)
+        }
     }
 
     fun isTurboCpuLoaded(): Boolean = repository.isTurboModelLoaded()
+
+    private suspend fun loadTurboModel(
+        assets: AssetManager,
+        modelId: String,
+        vadModelPath: String?
+    ): Result<Unit> {
+        userPreferences.setTurboLoadInProgress(true)
+        return try {
+            val result = withModelSource(modelId) { modelPath, modelFd ->
+                repository.loadTurboModel(assets, modelPath, vadModelPath, modelFd)
+            }
+            val failure = result.exceptionOrNull()
+            if (failure is CancellationException) {
+                throw failure
+            }
+            result
+        } catch (exception: CancellationException) {
+            throw exception
+        } catch (exception: Exception) {
+            Result.failure(exception)
+        } finally {
+            userPreferences.setTurboLoadInProgress(false)
+        }
+    }
+
+    private suspend fun disableTurboSettingAfterFailure() {
+        // Recorded as a decision so the next cold start does not auto-enable turbo again
+        // and repeat the load that just failed.
+        val failure = settingsRepository.updateTurboModeEnabled(
+            enabled = false,
+            isUserAction = true
+        ).exceptionOrNull() ?: return
+        if (failure is CancellationException) {
+            throw failure
+        }
+        VoiceSkipLogger.e("Failed to disable turbo setting", failure)
+    }
 
     private suspend fun maybeAutoEnableTurbo(assets: AssetManager, modelId: String, vadModelPath: String?, gpuInfo: String?) {
         if (userPreferences.turboModeHasBeenSet.first()) return
@@ -337,11 +393,17 @@ class ModelManager(
         if (!userPreferences.shouldAutoEnableTurboForDevice()) return
 
         VoiceSkipLogger.i("Auto-enabling turbo mode (first run, high-spec device)")
-        userPreferences.setTurboModeEnabled(true, isUserAction = false)
+        settingsRepository.updateTurboModeEnabled(
+            enabled = true,
+            isUserAction = false
+        ).getOrThrow()
 
-        userPreferences.setTurboLoadInProgress(true)
-        withModelSource(modelId) { mp, fd -> repository.loadTurboModel(assets, mp, vadModelPath, fd) }
-        userPreferences.setTurboLoadInProgress(false)
+        val failure = loadTurboModel(assets, modelId, vadModelPath).exceptionOrNull()
+        if (failure != null) {
+            disableTurboSettingAfterFailure()
+            VoiceSkipLogger.e("Failed to auto-enable turbo mode", failure)
+            return
+        }
         VoiceSkipLogger.i("Turbo mode auto-enabled and CPU model loaded")
     }
 
@@ -349,7 +411,6 @@ class ModelManager(
     fun startObservingSettings(assets: AssetManager, scope: CoroutineScope) {
         var previousModel: String? = null
         var previousGpuEnabled: Boolean? = null
-        var previousTurboEnabled: Boolean? = null
 
         scope.launch {
             combine(
@@ -368,17 +429,13 @@ class ModelManager(
                     val isFirstEmission = previousModel == null
                     val modelOrGpuChanged = !isFirstEmission &&
                         (previousModel != model || previousGpuEnabled != gpuEnabled)
-                    val turboChanged = !isFirstEmission &&
-                        previousTurboEnabled != turboEnabled
                     val reloadRequested =
                         handledModelReloadGeneration != settings.reloadGeneration
+                    val shouldUseTurbo = turboEnabled && gpuEnabled
 
-                    if (turboChanged) {
-                        VoiceSkipLogger.i("Turbo mode changed to: $turboEnabled")
-                        updateTurboMode(assets, turboEnabled && gpuEnabled)
-                    } else if (isFirstEmission && turboEnabled && gpuEnabled && !repository.isTurboModelLoaded()) {
-                        VoiceSkipLogger.i("Turbo mode enabled in settings but not loaded, loading now")
-                        updateTurboMode(assets, true)
+                    if (!shouldUseTurbo && repository.isTurboModelLoaded()) {
+                        VoiceSkipLogger.i("Turbo mode no longer active, unloading")
+                        updateTurboMode(assets, false)
                     }
 
                     val loadedState = _modelState.value as? ModelState.Loaded
@@ -397,9 +454,13 @@ class ModelManager(
                     }
                     handledModelReloadGeneration = settings.reloadGeneration
 
+                    if (shouldUseTurbo && !repository.isTurboModelLoaded()) {
+                        VoiceSkipLogger.i("Turbo mode enabled but not loaded, loading now")
+                        updateTurboMode(assets, true)
+                    }
+
                     previousModel = model
                     previousGpuEnabled = gpuEnabled
-                    previousTurboEnabled = turboEnabled
                 }
         }
     }

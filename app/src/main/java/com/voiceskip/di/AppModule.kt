@@ -9,17 +9,14 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import com.voiceskip.data.UserPreferences
-import com.voiceskip.data.repository.ModelRepository
 import com.voiceskip.data.repository.SavedTranscriptionRepository
 import com.voiceskip.data.repository.SavedTranscriptionRepositoryImpl
 import com.voiceskip.data.repository.SettingsRepository
 import com.voiceskip.data.repository.SettingsRepositoryImpl
-import com.voiceskip.data.repository.TranscriptionRepository
 import com.voiceskip.data.source.SavedTranscriptionDataSource
 import com.voiceskip.data.source.SavedTranscriptionDataSourceImpl
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.data.source.WhisperDataSourceImpl
-import com.voiceskip.domain.ModelManager
 import com.voiceskip.service.ServiceLauncher
 import com.voiceskip.service.ServiceLauncherImpl
 import com.voiceskip.ui.main.FileManager
@@ -54,22 +51,6 @@ object AppModule {
         return FileManager(
             modelsPath = File(application.filesDir, "models"),
             samplesPath = File(application.filesDir, "samples")
-        )
-    }
-
-    @Provides
-    @Singleton
-    fun provideModelManager(
-        repository: TranscriptionRepository,
-        modelRepository: ModelRepository,
-        userPreferences: UserPreferences,
-        fileManager: FileManager
-    ): ModelManager {
-        return ModelManager(
-            repository,
-            modelRepository,
-            userPreferences,
-            fileManager
         )
     }
 

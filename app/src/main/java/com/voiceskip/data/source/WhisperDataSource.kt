@@ -15,6 +15,11 @@ sealed class TranscriptionEvent {
     data class Error(val message: String) : TranscriptionEvent()
 }
 
+data class TranscriptionThreadCounts(
+    val standard: Int,
+    val turbo: Int
+)
+
 interface WhisperDataSource {
     val events: SharedFlow<TranscriptionEvent>
 
@@ -28,7 +33,7 @@ interface WhisperDataSource {
 
     fun startStream(
         audioProvider: AudioProvider,
-        numThreads: Int,
+        threadCounts: TranscriptionThreadCounts,
         language: String?,
         translate: Boolean,
         live: Boolean = false,

@@ -8,8 +8,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import com.voiceskip.data.UserPreferences
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.data.source.WhisperDataSourceImpl
 import com.voiceskip.media.FileAudioProvider
@@ -142,7 +142,10 @@ class WhisperJniIntegrationTest {
 
                 whisperDataSource!!.startStream(
                     audioProvider = audioProvider,
-                    numThreads = threads,
+                    threadCounts = TranscriptionThreadCounts(
+                        standard = threads,
+                        turbo = threads
+                    ),
                     language = "en",
                     translate = false
                 )
@@ -199,7 +202,10 @@ class WhisperJniIntegrationTest {
 
         whisperDataSource!!.startStream(
             audioProvider = audioProvider,
-            numThreads = WhisperTestUtils.CPU_THREADS,
+            threadCounts = TranscriptionThreadCounts(
+                standard = WhisperTestUtils.CPU_THREADS,
+                turbo = WhisperTestUtils.CPU_THREADS
+            ),
             language = null,
             translate = false
         )

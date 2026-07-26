@@ -285,5 +285,6 @@ class FakeTranscriptionRepository : TranscriptionRepository {
         loadModelResult = Result.success(true)
         loadModelGpuResult = "Test GPU"
         loadModelResultProvider = null
+        loadTurboModelResult = Result.success(Unit)
     }
 }

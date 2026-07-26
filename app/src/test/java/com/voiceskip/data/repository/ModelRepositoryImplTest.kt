@@ -62,7 +62,8 @@ class ModelRepositoryImplTest {
         var displayNameFailure: Exception? = null
         var persistFailure: Exception? = null
         var descriptor: ParcelFileDescriptor? = null
-        val permissionOperations = mutableListOf<Pair<PermissionOperation, String>>()
+        val permissionOperations = mutableListOf<PermissionOperation>()
+        val releasedUris = mutableListOf<String>()
 
         override fun getDisplayName(uri: String): String? {
             displayNameFailure?.let { throw it }
@@ -76,12 +77,13 @@ class ModelRepositoryImplTest {
 
         override fun persistReadPermission(uri: String) {
             persistFailure?.let { throw it }
-            permissionOperations += PermissionOperation.PERSIST to uri
+            permissionOperations += PermissionOperation.PERSIST
             readPermissionPersisted = true
         }
 
         override fun releaseReadPermission(uri: String) {
-            permissionOperations += PermissionOperation.RELEASE to uri
+            permissionOperations += PermissionOperation.RELEASE
+            releasedUris += uri
             readPermissionPersisted = false
         }
 
@@ -155,8 +157,7 @@ class ModelRepositoryImplTest {
 
         assertThat(repository.deleteModel(id).isSuccess).isTrue()
 
-        assertThat(documentDataSource.permissionOperations)
-            .containsExactly(PermissionOperation.RELEASE to id)
+        assertThat(documentDataSource.releasedUris).containsExactly(id)
         assertThat(documentDataSource.readPermissionPersisted).isFalse()
     }
 
@@ -169,7 +170,7 @@ class ModelRepositoryImplTest {
 
         assertThat(id).isEqualTo(uri.toString())
         assertThat(documentDataSource.permissionOperations)
-            .containsExactly(PermissionOperation.PERSIST to uri.toString())
+            .containsExactly(PermissionOperation.PERSIST)
         assertThat(repository.importState.value).isEqualTo(ModelImportState.Idle)
         val imported = repository.availableModels.value.filter { it.isImported }
         assertThat(imported.map { it.id }).containsExactly(uri.toString())
@@ -240,7 +241,7 @@ class ModelRepositoryImplTest {
         val id = repository.importModel(uri)
 
         assertThat(id).isNull()
-        assertThat(documentDataSource.permissionOperations.map { it.first })
+        assertThat(documentDataSource.permissionOperations)
             .containsExactly(
                 PermissionOperation.PERSIST,
                 PermissionOperation.RELEASE
@@ -260,7 +261,7 @@ class ModelRepositoryImplTest {
 
         repository.importModel(uri)
 
-        assertThat(documentDataSource.permissionOperations.map { it.first })
+        assertThat(documentDataSource.permissionOperations)
             .containsExactly(PermissionOperation.PERSIST)
         assertThat(documentDataSource.readPermissionPersisted).isTrue()
     }
@@ -279,7 +280,7 @@ class ModelRepositoryImplTest {
         }
 
         assertThat(cancellation).isNotNull()
-        assertThat(documentDataSource.permissionOperations.map { it.first })
+        assertThat(documentDataSource.permissionOperations)
             .containsExactly(
                 PermissionOperation.PERSIST,
                 PermissionOperation.RELEASE

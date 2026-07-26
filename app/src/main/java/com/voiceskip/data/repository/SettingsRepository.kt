@@ -25,7 +25,10 @@ interface SettingsRepository {
     suspend fun updateTranslateToEnglish(translate: Boolean): Result<Unit>
     suspend fun updateModel(model: String): Result<Unit>
     suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit>
-    suspend fun updateTurboModeEnabled(enabled: Boolean): Result<Unit>
+    suspend fun updateTurboModeEnabled(
+        enabled: Boolean,
+        isUserAction: Boolean = true
+    ): Result<Unit>
     suspend fun updateVadEnabled(enabled: Boolean): Result<Unit>
     suspend fun updateNumThreads(numThreads: Int): Result<Unit>
     suspend fun updateDefaultLanguage(language: String): Result<Unit>

@@ -18,10 +18,13 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Before
@@ -405,6 +408,76 @@ class TranscriptionRepositoryImplTest {
         }
 
         assertThat(result.exceptionOrNull()?.message).isEqualTo("Invalid model file")
+    }
+
+    @Test
+    fun `loadTurboModel enables turbo only after the second model loads`() = runTest {
+        val result = async {
+            repository.loadTurboModel(mockAssets, "models/test.bin", vadModelPath = null)
+        }
+        runCurrent()
+
+        assertThat(repository.isTurboModelLoaded()).isFalse()
+
+        fakeWhisperDataSource.emitEvent(
+            TranscriptionEvent.ModelLoaded(gpuInfo = null, turbo = true)
+        )
+
+        assertThat(result.await().isSuccess).isTrue()
+        assertThat(repository.isTurboModelLoaded()).isTrue()
+    }
+
+    @Test
+    fun `loadTurboModel returns failure and disables turbo when loading fails`() = runTest {
+        val result = async {
+            repository.loadTurboModel(mockAssets, "models/too-large.bin", vadModelPath = null)
+        }
+        runCurrent()
+
+        fakeWhisperDataSource.emitEvent(TranscriptionEvent.Error("Not enough memory"))
+        runCurrent()
+
+        assertThat(result.isCompleted).isTrue()
+        assertThat(result.await().exceptionOrNull()?.message).contains("Not enough memory")
+        assertThat(repository.isTurboModelLoaded()).isFalse()
+    }
+
+    @Test
+    fun `loadTurboModel handles error emitted while load is submitted`() = runTest {
+        fakeWhisperDataSource.turboErrorOnLoad =
+            TranscriptionEvent.Error("Invalid turbo model file")
+
+        val result = withTimeout(1_000) {
+            repository.loadTurboModel(
+                mockAssets,
+                modelPath = null,
+                vadModelPath = null,
+                modelFd = 42
+            )
+        }
+
+        assertThat(result.exceptionOrNull()?.message)
+            .isEqualTo("Invalid turbo model file")
+        assertThat(repository.isTurboModelLoaded()).isFalse()
+    }
+
+    @Test
+    fun `loadTurboModel preserves cancellation`() = runTest {
+        fakeWhisperDataSource.setTurboModeResult =
+            Result.failure(CancellationException("Cancelled"))
+
+        val cancellation = try {
+            repository.loadTurboModel(
+                mockAssets,
+                "models/test.bin",
+                vadModelPath = null
+            )
+            null
+        } catch (exception: CancellationException) {
+            exception
+        }
+
+        assertThat(cancellation).isNotNull()
     }
 
     @Test

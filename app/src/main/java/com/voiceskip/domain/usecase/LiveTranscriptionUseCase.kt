@@ -5,6 +5,7 @@ package com.voiceskip.domain.usecase
 import com.voiceskip.whispercpp.whisper.WhisperSegment
 import com.voiceskip.data.VoiceSkipException.TranscriptionException
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.media.LiveAudioProvider
 import kotlinx.coroutines.cancel
@@ -67,7 +68,7 @@ class LiveTranscriptionUseCase @Inject constructor(
     )
 
     fun execute(
-        numThreads: Int,
+        threadCounts: TranscriptionThreadCounts,
         language: String?,
         translateToEnglish: Boolean,
         gpuEnabled: Boolean,
@@ -160,7 +161,7 @@ class LiveTranscriptionUseCase @Inject constructor(
 
             whisperDataSource.startStream(
                 audioProvider = audioProvider,
-                numThreads = numThreads,
+                threadCounts = threadCounts,
                 language = language,
                 translate = translateToEnglish,
                 live = true,

@@ -7,6 +7,7 @@ import android.net.Uri
 import com.voiceskip.whispercpp.whisper.WhisperSegment
 import com.voiceskip.data.VoiceSkipException.TranscriptionException
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.media.FileAudioProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -50,7 +51,7 @@ class FileTranscriptionUseCase @Inject constructor(
 
     fun execute(
         source: Source,
-        numThreads: Int,
+        threadCounts: TranscriptionThreadCounts,
         language: String?,
         translateToEnglish: Boolean,
         gpuEnabled: Boolean,
@@ -130,7 +131,7 @@ class FileTranscriptionUseCase @Inject constructor(
 
             whisperDataSource.startStream(
                 audioProvider = audioProvider,
-                numThreads = numThreads,
+                threadCounts = threadCounts,
                 language = language,
                 translate = translateToEnglish,
                 live = false,

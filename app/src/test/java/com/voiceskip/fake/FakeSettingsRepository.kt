@@ -39,6 +39,10 @@ class FakeSettingsRepository : SettingsRepository {
     var updateNumThreadsCalled = false
     var updateDefaultLanguageCalled = false
 
+    // ModelManager writes this through the repository but reads it back as
+    // UserPreferences.turboModeHasBeenSet; tests use this hook to close that loop.
+    var onTurboDecisionRecorded: (() -> Unit)? = null
+
     var updateResult: Result<Unit> = Result.success(Unit)
 
     override suspend fun updateListenModeEnabled(enabled: Boolean): Result<Unit> {
@@ -80,11 +84,17 @@ class FakeSettingsRepository : SettingsRepository {
         }
     }
 
-    override suspend fun updateTurboModeEnabled(enabled: Boolean): Result<Unit> {
+    override suspend fun updateTurboModeEnabled(
+        enabled: Boolean,
+        isUserAction: Boolean
+    ): Result<Unit> {
         updateTurboModeEnabledCalled = true
         return updateResult.also {
             if (it.isSuccess) {
                 _userSettings.update { settings -> settings.copy(turboModeEnabled = enabled) }
+                if (isUserAction) {
+                    onTurboDecisionRecorded?.invoke()
+                }
             }
         }
     }
@@ -141,6 +151,7 @@ class FakeSettingsRepository : SettingsRepository {
         updateVadEnabledCalled = false
         updateNumThreadsCalled = false
         updateDefaultLanguageCalled = false
+        onTurboDecisionRecorded = null
         updateResult = Result.success(Unit)
     }
 }

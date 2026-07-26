@@ -9,6 +9,7 @@ import com.google.common.truth.Truth.assertThat
 import com.voiceskip.TestDispatcherRule
 import com.voiceskip.data.UserPreferences
 import com.voiceskip.fake.FakeModelRepository
+import com.voiceskip.fake.FakeSettingsRepository
 import com.voiceskip.fake.FakeTranscriptionRepository
 import com.voiceskip.ui.main.FileManager
 import io.mockk.coEvery
@@ -19,6 +20,7 @@ import io.mockk.mockk
 import io.mockk.Runs
 import io.mockk.verify
 import io.mockk.verifyOrder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
@@ -41,6 +43,7 @@ class ModelManagerTest {
     private lateinit var modelManager: ModelManager
     private lateinit var fakeRepository: FakeTranscriptionRepository
     private lateinit var fakeModelRepository: FakeModelRepository
+    private lateinit var fakeSettingsRepository: FakeSettingsRepository
     private lateinit var mockUserPreferences: UserPreferences
     private lateinit var mockFileManager: FileManager
     private lateinit var mockAssets: AssetManager
@@ -53,6 +56,7 @@ class ModelManagerTest {
     fun setup() {
         fakeRepository = FakeTranscriptionRepository()
         fakeModelRepository = FakeModelRepository()
+        fakeSettingsRepository = FakeSettingsRepository()
 
         mockUserPreferences = mockk(relaxed = true) {
             every { model } returns modelFlow
@@ -62,7 +66,6 @@ class ModelManagerTest {
             every { setGpuInProgress(any()) } just Runs
             every { isTurboLoadInProgress() } returns false
             every { setTurboLoadInProgress(any()) } just Runs
-            coEvery { setTurboModeEnabled(any(), any()) } just Runs
             every { shouldAutoEnableTurboForDevice() } returns false
         }
 
@@ -75,6 +78,7 @@ class ModelManagerTest {
         modelManager = ModelManager(
             repository = fakeRepository,
             modelRepository = fakeModelRepository,
+            settingsRepository = fakeSettingsRepository,
             userPreferences = mockUserPreferences,
             fileManager = mockFileManager
         )
@@ -331,6 +335,67 @@ class ModelManagerTest {
             .isInstanceOf(ModelManager.ModelState.Error::class.java)
     }
 
+    @Test
+    fun `cancelled load does not leave the state stuck on Loading`() = runTest {
+        coEvery { mockFileManager.copyAssets(any()) } coAnswers { awaitCancellation() }
+
+        val cancelled = launch { runCatching { modelManager.loadModel(mockAssets) } }
+        runCurrent()
+        cancelled.cancelAndJoin()
+
+        assertThat(modelManager.modelState.value)
+            .isEqualTo(ModelManager.ModelState.NotLoaded)
+    }
+
+    @Test
+    fun `turbo crash recovery is not undone by auto-enable in the same load`() = runTest {
+        every { mockUserPreferences.isTurboLoadInProgress() } returns true
+        every { mockUserPreferences.shouldAutoEnableTurboForDevice() } returns true
+        turboModeHasBeenSetFlow.value = false
+        fakeSettingsRepository.onTurboDecisionRecorded = { turboModeHasBeenSetFlow.value = true }
+
+        modelManager.loadModel(mockAssets)
+        advanceUntilIdle()
+
+        assertThat(fakeSettingsRepository.getCurrentSettings().turboModeEnabled).isFalse()
+        assertThat(fakeRepository.loadTurboModelCalled).isFalse()
+    }
+
+    @Test
+    fun `failed turbo load turns the setting off without discarding the main model`() = runTest {
+        fakeSettingsRepository.setSettings(
+            fakeSettingsRepository.getCurrentSettings().copy(turboModeEnabled = true)
+        )
+
+        assertThat(modelManager.loadModel(mockAssets).isSuccess).isTrue()
+        fakeRepository.loadTurboModelResult =
+            Result.failure(RuntimeException("Not enough memory"))
+
+        assertThat(modelManager.updateTurboMode(mockAssets, enabled = true).isFailure).isTrue()
+        assertThat(fakeSettingsRepository.getCurrentSettings().turboModeEnabled).isFalse()
+        assertThat(modelManager.isTurboCpuLoaded()).isFalse()
+        assertThat(modelManager.modelState.value)
+            .isEqualTo(ModelManager.ModelState.Loaded("ggml-base.en.bin", "Test GPU"))
+    }
+
+    @Test
+    fun `cancelled turbo load preserves cancellation and the main model`() = runTest {
+        assertThat(modelManager.loadModel(mockAssets).isSuccess).isTrue()
+        fakeRepository.loadTurboModelResult =
+            Result.failure(CancellationException("Cancelled"))
+
+        val cancellation = try {
+            modelManager.updateTurboMode(mockAssets, enabled = true)
+            null
+        } catch (exception: CancellationException) {
+            exception
+        }
+
+        assertThat(cancellation).isNotNull()
+        assertThat(modelManager.modelState.value)
+            .isEqualTo(ModelManager.ModelState.Loaded("ggml-base.en.bin", "Test GPU"))
+    }
+
     // =========================================================================
     // Skip Loading Tests
     // =========================================================================
@@ -475,6 +540,109 @@ class ModelManagerTest {
             "models/ggml-large.bin" to true,
             "models/ggml-large.bin" to false
         ).inOrder()
+    }
+
+    @Test
+    fun `settings observer unloads turbo without GPU and restores it when GPU returns`() = runTest {
+        every { mockUserPreferences.turboModeEnabled } returns MutableStateFlow(true)
+
+        modelManager.loadModel(mockAssets)
+        fakeRepository.setTurboModelLoaded(true)
+        modelManager.startObservingSettings(mockAssets, backgroundScope)
+        advanceTimeBy(101)
+        runCurrent()
+        fakeRepository.resetCallTracking()
+
+        gpuEnabledFlow.value = false
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(fakeRepository.unloadTurboModelCalled).isTrue()
+        assertThat(fakeRepository.loadTurboModelCalled).isFalse()
+        assertThat(fakeRepository.isTurboModelLoaded()).isFalse()
+        assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
+
+        fakeRepository.resetCallTracking()
+        gpuEnabledFlow.value = true
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(fakeRepository.lastLoadModelUseGpu).isTrue()
+        assertThat(fakeRepository.loadTurboModelCalled).isTrue()
+        assertThat(fakeRepository.isTurboModelLoaded()).isTrue()
+    }
+
+    @Test
+    fun `first settings emission unloads turbo when the persisted setting is off`() = runTest {
+        every { mockUserPreferences.turboModeEnabled } returns MutableStateFlow(false)
+
+        modelManager.loadModel(mockAssets)
+        fakeRepository.setTurboModelLoaded(true)
+        modelManager.startObservingSettings(mockAssets, backgroundScope)
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(fakeRepository.unloadTurboModelCalled).isTrue()
+        assertThat(fakeRepository.isTurboModelLoaded()).isFalse()
+    }
+
+    @Test
+    fun `settings observer restores requested turbo after main model recovery`() = runTest {
+        every { mockUserPreferences.turboModeEnabled } returns MutableStateFlow(true)
+        fakeRepository.loadModelResult = Result.failure(RuntimeException("Load failed"))
+
+        modelManager.loadModel(mockAssets)
+        modelManager.startObservingSettings(mockAssets, backgroundScope)
+        advanceTimeBy(101)
+        runCurrent()
+
+        fakeRepository.resetCallTracking()
+        fakeRepository.loadModelResult = Result.success(true)
+        modelFlow.value = "ggml-small.bin"
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(modelManager.modelState.value)
+            .isEqualTo(ModelManager.ModelState.Loaded("ggml-small.bin", "Test GPU"))
+        assertThat(fakeRepository.loadTurboModelCalled).isTrue()
+        assertThat(fakeRepository.isTurboModelLoaded()).isTrue()
+    }
+
+    @Test
+    fun `turning turbo off after main load failure keeps it off through recovery`() = runTest {
+        val turboModeEnabledFlow = MutableStateFlow(true)
+        every { mockUserPreferences.turboModeEnabled } returns turboModeEnabledFlow
+
+        modelManager.loadModel(mockAssets)
+        fakeRepository.setTurboModelLoaded(true)
+        modelManager.startObservingSettings(mockAssets, backgroundScope)
+        advanceTimeBy(101)
+        runCurrent()
+
+        fakeRepository.loadModelResult = Result.failure(RuntimeException("Load failed"))
+        modelFlow.value = "ggml-small.bin"
+        advanceTimeBy(101)
+        runCurrent()
+        assertThat(modelManager.modelState.value)
+            .isInstanceOf(ModelManager.ModelState.Error::class.java)
+
+        turboModeEnabledFlow.value = false
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(fakeRepository.unloadTurboModelCalled).isTrue()
+        assertThat(fakeRepository.isTurboModelLoaded()).isFalse()
+
+        fakeRepository.resetCallTracking()
+        fakeRepository.loadModelResult = Result.success(true)
+        modelFlow.value = "ggml-large.bin"
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(modelManager.modelState.value)
+            .isEqualTo(ModelManager.ModelState.Loaded("ggml-large.bin", "Test GPU"))
+        assertThat(fakeRepository.loadTurboModelCalled).isFalse()
+        assertThat(fakeRepository.isTurboModelLoaded()).isFalse()
     }
 
     // =========================================================================

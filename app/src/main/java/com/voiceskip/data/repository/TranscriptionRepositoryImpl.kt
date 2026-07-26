@@ -8,8 +8,9 @@ import com.voiceskip.whispercpp.whisper.WhisperSegment
 import com.voiceskip.data.ErrorHandler
 import com.voiceskip.data.UserPreferences
 import com.voiceskip.data.repository.SettingsRepository
-import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
+import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.domain.usecase.FileTranscriptionUseCase
 import com.voiceskip.domain.usecase.LiveTranscriptionUseCase
 import com.voiceskip.ui.main.FileManager
@@ -94,7 +95,7 @@ class TranscriptionRepositoryImpl @Inject constructor(
             val languageCode = _sessionLanguage.value?.takeIf { it != UserPreferences.LANGUAGE_AUTO }
 
             liveTranscriptionUseCase.execute(
-                numThreads = getEffectiveThreadCount(settings.numThreads),
+                threadCounts = getTranscriptionThreadCounts(settings.numThreads),
                 language = languageCode,
                 translateToEnglish = settings.translateToEnglish,
                 gpuEnabled = settings.gpuEnabled,
@@ -200,7 +201,7 @@ class TranscriptionRepositoryImpl @Inject constructor(
 
                 fileTranscriptionUseCase.execute(
                     source = source,
-                    numThreads = getEffectiveThreadCount(settings.numThreads),
+                    threadCounts = getTranscriptionThreadCounts(settings.numThreads),
                     language = languageCode,
                     translateToEnglish = settings.translateToEnglish,
                     gpuEnabled = settings.gpuEnabled,
@@ -390,9 +391,36 @@ class TranscriptionRepositoryImpl @Inject constructor(
 
     override fun isModelLoaded(): Boolean = _isModelLoaded
 
-    override suspend fun loadTurboModel(assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int): Result<Unit> = runCatching {
-        whisperDataSource.setTurboMode(true, assets, modelPath, vadModelPath, modelFd)
-        whisperDataSource.events.first { it is TranscriptionEvent.ModelLoaded && it.turbo }
+    override suspend fun loadTurboModel(
+        assets: AssetManager,
+        modelPath: String?,
+        vadModelPath: String?,
+        modelFd: Int
+    ): Result<Unit> = try {
+        val event = submitAndAwaitModelEvent(
+            submit = {
+                whisperDataSource.setTurboMode(
+                    true,
+                    assets,
+                    modelPath,
+                    vadModelPath,
+                    modelFd
+                )
+            },
+            predicate = {
+                it is TranscriptionEvent.Error ||
+                    it is TranscriptionEvent.ModelLoaded && it.turbo
+            }
+        )
+        if (event is TranscriptionEvent.Error) {
+            whisperDataSource.disableTurboMode()
+            throw Exception(event.message)
+        }
+        Result.success(Unit)
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        Result.failure(exception)
     }
 
     override suspend fun unloadTurboModel(): Result<Unit> = runCatching {
@@ -408,8 +436,11 @@ class TranscriptionRepositoryImpl @Inject constructor(
         .onSubscription { submit() }
         .first(predicate)
 
-    private fun getEffectiveThreadCount(settingsThreads: Int): Int =
-        if (isTurboModelLoaded()) UserPreferences.getTurboCpuThreads() else settingsThreads
+    private fun getTranscriptionThreadCounts(settingsThreads: Int) =
+        TranscriptionThreadCounts(
+            standard = settingsThreads,
+            turbo = UserPreferences.getTurboCpuThreads()
+        )
 
     private suspend fun updateInternalState(update: (InternalTranscriptionState) -> InternalTranscriptionState) {
         stateMutex.withLock {

@@ -4,6 +4,7 @@ package com.voiceskip.fake
 
 import android.content.res.AssetManager
 import com.voiceskip.data.source.TranscriptionEvent
+import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.whispercpp.whisper.AudioProvider
 import com.voiceskip.whispercpp.whisper.WhisperSegment
@@ -35,9 +36,12 @@ class FakeWhisperDataSource : WhisperDataSource {
 
     private var _isTurboEnabled = false
     override val isTurboEnabled: Boolean get() = _isTurboEnabled
+    private var _isTurboModeRequested = false
 
     var setTurboModeCalled = false
     var setTurboModeEnabled: Boolean? = null
+    var setTurboModeResult: Result<Unit> = Result.success(Unit)
+    var turboErrorOnLoad: TranscriptionEvent.Error? = null
 
     var durationMs: Long = 0L
 
@@ -70,13 +74,18 @@ class FakeWhisperDataSource : WhisperDataSource {
 
     override fun startStream(
         audioProvider: AudioProvider,
-        numThreads: Int,
+        threadCounts: TranscriptionThreadCounts,
         language: String?,
         translate: Boolean,
         live: Boolean,
         vadEnabled: Boolean
     ) {
         startStreamCalled = true
+        val numThreads = if (_isTurboModeRequested) {
+            threadCounts.turbo
+        } else {
+            threadCounts.standard
+        }
         startStreamCalls.add(
             StartStreamCall(audioProvider, numThreads, language, translate, live, vadEnabled)
         )
@@ -100,14 +109,33 @@ class FakeWhisperDataSource : WhisperDataSource {
     override fun setTurboMode(enabled: Boolean, assets: AssetManager, modelPath: String?, vadModelPath: String?, modelFd: Int) {
         setTurboModeCalled = true
         setTurboModeEnabled = enabled
-        _isTurboEnabled = enabled
+        if (enabled) {
+            val previousRequested = _isTurboModeRequested
+            val previousLoaded = _isTurboEnabled
+            _isTurboModeRequested = true
+            _isTurboEnabled = false
+            try {
+                setTurboModeResult.getOrThrow()
+                turboErrorOnLoad?.let { _events.tryEmit(it) }
+            } catch (throwable: Throwable) {
+                _isTurboModeRequested = previousRequested
+                _isTurboEnabled = previousLoaded
+                throw throwable
+            }
+        } else {
+            disableTurboMode()
+        }
     }
 
     override fun disableTurboMode() {
+        _isTurboModeRequested = false
         _isTurboEnabled = false
     }
 
     suspend fun emitEvent(event: TranscriptionEvent) {
+        if (event is TranscriptionEvent.ModelLoaded && event.turbo && _isTurboModeRequested) {
+            _isTurboEnabled = true
+        }
         _events.emit(event)
     }
 
@@ -144,13 +172,17 @@ class FakeWhisperDataSource : WhisperDataSource {
         startStreamCalls.clear()
         stopCalled = false
         destroyCalled = false
+        _isTurboModeRequested = false
         _isTurboEnabled = false
         setTurboModeCalled = false
         setTurboModeEnabled = null
+        setTurboModeResult = Result.success(Unit)
+        turboErrorOnLoad = null
         durationMs = 0L
     }
 
     fun enableTurboModeForTesting() {
+        _isTurboModeRequested = true
         _isTurboEnabled = true
     }
 }

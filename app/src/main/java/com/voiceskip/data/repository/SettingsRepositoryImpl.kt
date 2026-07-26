@@ -3,6 +3,7 @@
 package com.voiceskip.data.repository
 
 import com.voiceskip.data.UserPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -64,8 +65,16 @@ class SettingsRepositoryImpl(
         userPreferences.setGpuEnabled(enabled)
     }
 
-    override suspend fun updateTurboModeEnabled(enabled: Boolean): Result<Unit> = runCatching {
-        userPreferences.setTurboModeEnabled(enabled)
+    override suspend fun updateTurboModeEnabled(
+        enabled: Boolean,
+        isUserAction: Boolean
+    ): Result<Unit> = try {
+        userPreferences.setTurboModeEnabled(enabled, isUserAction)
+        Result.success(Unit)
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (exception: Exception) {
+        Result.failure(exception)
     }
 
     override suspend fun updateVadEnabled(enabled: Boolean): Result<Unit> = runCatching {
