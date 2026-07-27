@@ -15,18 +15,38 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384
 
 include(FetchContent)
 
-# Fetch whisper.cpp (source only, don't process its CMakeLists.txt)
-FetchContent_Declare(
-    whisper_cpp
-    GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
-    GIT_TAG        080bbbe85230f624f0b52127f1ae1218247989f9
-    PATCH_COMMAND  git apply ${CMAKE_CURRENT_SOURCE_DIR}/whisper.patches
+set(WHISPER_CPP_GIT_TAG 080bbbe85230f624f0b52127f1ae1218247989f9)
+set(WHISPER_CPP_PATCH_FILE "${CMAKE_CURRENT_SOURCE_DIR}/whisper.patches")
+set_property(
+    DIRECTORY APPEND PROPERTY
+    CMAKE_CONFIGURE_DEPENDS "${WHISPER_CPP_PATCH_FILE}"
 )
-FetchContent_GetProperties(whisper_cpp)
-if(NOT whisper_cpp_POPULATED)
-    FetchContent_Populate(whisper_cpp)
+file(SHA256 "${WHISPER_CPP_PATCH_FILE}" WHISPER_CPP_PATCH_HASH)
+string(
+    SHA256 WHISPER_CPP_STATE_HASH
+    "${WHISPER_CPP_GIT_TAG}:${WHISPER_CPP_PATCH_HASH}"
+)
+string(SUBSTRING "${WHISPER_CPP_STATE_HASH}" 0 16 WHISPER_CPP_STATE_ID)
+set(WHISPER_CPP_CONTENT_NAME "whisper_cpp_${WHISPER_CPP_STATE_ID}")
+
+FetchContent_Declare(
+    ${WHISPER_CPP_CONTENT_NAME}
+    GIT_REPOSITORY      https://github.com/ggerganov/whisper.cpp.git
+    GIT_TAG             ${WHISPER_CPP_GIT_TAG}
+    UPDATE_DISCONNECTED TRUE
+    PATCH_COMMAND       git apply ${WHISPER_CPP_PATCH_FILE}
+)
+FetchContent_GetProperties(
+    ${WHISPER_CPP_CONTENT_NAME}
+    POPULATED WHISPER_CPP_POPULATED
+)
+if(NOT WHISPER_CPP_POPULATED)
+    FetchContent_Populate(${WHISPER_CPP_CONTENT_NAME})
 endif()
-set(WHISPER_LIB_DIR ${whisper_cpp_SOURCE_DIR})
+FetchContent_GetProperties(
+    ${WHISPER_CPP_CONTENT_NAME}
+    SOURCE_DIR WHISPER_LIB_DIR
+)
 
 # Get whisper.cpp version
 file(READ "${WHISPER_LIB_DIR}/CMakeLists.txt" MAIN_CMAKE_CONTENT)
@@ -145,16 +165,21 @@ function(build_library target_name)
     endif ()
 
     if (GGML_HOME)
-        FetchContent_Declare(ggml SOURCE_DIR ${GGML_HOME})
+        set(GGML_CONTENT_NAME ggml)
+        FetchContent_Declare(${GGML_CONTENT_NAME} SOURCE_DIR ${GGML_HOME})
     else()
-        FetchContent_Declare(ggml SOURCE_DIR ${WHISPER_LIB_DIR}/ggml)
+        set(GGML_CONTENT_NAME "ggml_${WHISPER_CPP_STATE_ID}")
+        FetchContent_Declare(
+            ${GGML_CONTENT_NAME}
+            SOURCE_DIR ${WHISPER_LIB_DIR}/ggml
+        )
     endif()
 
     # Enable Vulkan backend in GGML
     set(GGML_VULKAN ON CACHE BOOL "" FORCE)
     set(GGML_VULKAN_MIN_1_1 ON CACHE BOOL "" FORCE)
 
-    FetchContent_MakeAvailable(ggml)
+    FetchContent_MakeAvailable(${GGML_CONTENT_NAME})
 
     # Apply 16 KB page size to GGML library as well
     if(TARGET ggml)
@@ -173,4 +198,3 @@ elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
 endif ()
 
 build_library("whisper") # Default target
-
