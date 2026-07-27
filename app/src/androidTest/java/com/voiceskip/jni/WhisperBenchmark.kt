@@ -146,7 +146,7 @@ class WhisperBenchmark {
         val audioProvider = FileAudioProvider(file = tempFile)
         audioProvider.startDecoding()
 
-        val durationMs = audioProvider.durationMs.first { it > 0 }
+        val durationMs = audioProvider.awaitDuration()
         whisperDataSource!!.setDuration(durationMs)
 
         val threads = when (mode) {

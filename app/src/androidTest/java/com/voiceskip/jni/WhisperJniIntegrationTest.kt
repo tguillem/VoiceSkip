@@ -138,7 +138,7 @@ class WhisperJniIntegrationTest {
                 val segments = mutableListOf<String>()
                 val audioProvider = FileAudioProvider(file = tempFile)
                 audioProvider.startDecoding()
-                whisperDataSource!!.setDuration(audioProvider.durationMs.first { it > 0 })
+                whisperDataSource!!.setDuration(audioProvider.awaitDuration())
 
                 whisperDataSource!!.startStream(
                     audioProvider = audioProvider,
@@ -198,7 +198,7 @@ class WhisperJniIntegrationTest {
         val segments = mutableListOf<TranscriptionEvent.Segment>()
         val audioProvider = FileAudioProvider(file = tempFile)
         audioProvider.startDecoding()
-        whisperDataSource!!.setDuration(audioProvider.durationMs.first { it > 0 })
+        whisperDataSource!!.setDuration(audioProvider.awaitDuration())
 
         whisperDataSource!!.startStream(
             audioProvider = audioProvider,

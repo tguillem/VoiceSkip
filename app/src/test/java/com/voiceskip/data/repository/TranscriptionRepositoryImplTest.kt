@@ -21,6 +21,7 @@ import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -31,6 +32,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TranscriptionRepositoryImplTest {
@@ -306,6 +308,22 @@ class TranscriptionRepositoryImplTest {
             assertThat(complete.text).isEqualTo("Transcribed text")
             assertThat(complete.audioLengthMs).isEqualTo(10000)
         }
+    }
+
+    @Test
+    fun `file decoder failure transitions to Error`() = runTest {
+        val uri = mockk<Uri>()
+
+        every { mockFileTranscriptionUseCase.execute(any(), any(), any(), any(), any()) } returns
+            flow { throw IOException("Failed to instantiate extractor") }
+
+        repository.transcribeUri(uri)
+        advanceUntilIdle()
+
+        val state = repository.state.value
+        assertThat(state).isInstanceOf(TranscriptionState.Error::class.java)
+        assertThat((state as TranscriptionState.Error).message)
+            .isEqualTo("Failed to instantiate extractor")
     }
 
     @Test

@@ -14,7 +14,6 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -69,7 +68,7 @@ class FileTranscriptionUseCase @Inject constructor(
         try {
             audioProvider.startDecoding()
 
-            val audioLengthMs = audioProvider.durationMs.first { it > 0 }.toInt()
+            val audioLengthMs = audioProvider.awaitDuration().coerceAtLeast(0L).toInt()
             whisperDataSource.setDuration(audioLengthMs.toLong())
 
             val eventJob = launch {

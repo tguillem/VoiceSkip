@@ -13,13 +13,12 @@ import android.util.Log
 import com.voiceskip.util.WHISPER_SAMPLE_RATE
 import com.voiceskip.whispercpp.whisper.AudioProvider
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import kotlin.math.min
 
 /**
@@ -49,8 +48,7 @@ class FileAudioProvider(
     private var extractor: MediaExtractor? = null
     private var decoder: MediaCodec? = null
 
-    private val _durationMs = MutableStateFlow(0L)
-    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+    private var decoderInitialization: CompletableDeferred<Long>? = null
 
     init {
         require(file != null || (context != null && uri != null)) {
@@ -68,11 +66,18 @@ class FileAudioProvider(
         currentBuffer = null
         bufferPosition = 0
         eofReached = false
-        _durationMs.value = 0L
+        val initialization = CompletableDeferred<Long>()
+        decoderInitialization = initialization
 
         handlerThread = HandlerThread("FileDecoder").apply { start() }
         val handler = Handler(handlerThread!!.looper)
-        handler.post { decode() }
+        handler.post { decode(initialization) }
+    }
+
+    suspend fun awaitDuration(): Long {
+        return checkNotNull(decoderInitialization) {
+            "Decoding has not started"
+        }.await()
     }
 
     /**
@@ -124,7 +129,7 @@ class FileAudioProvider(
         return filled
     }
 
-    private fun decode() {
+    private fun decode(initialization: CompletableDeferred<Long>) {
         try {
             extractor = MediaExtractor()
             if (file != null) {
@@ -133,19 +138,16 @@ class FileAudioProvider(
                 extractor!!.setDataSource(context!!, uri!!, null)
             }
 
-            val trackInfo = findAudioTrack() ?: run {
-                Log.e(LOG_TAG, "No audio track found")
-                audioQueue.put(EOF_MARKER)
-                return
-            }
+            val trackInfo = findAudioTrack()
+                ?: throw IOException("No audio track found")
 
-            _durationMs.value = trackInfo.durationMs
             Log.d(LOG_TAG, "Decoding: ${trackInfo.mime}, ${trackInfo.sampleRate}Hz, " +
                     "${trackInfo.channels} ch, duration: ${trackInfo.durationMs}ms")
 
             decoder = MediaCodec.createDecoderByType(trackInfo.mime)
             decoder!!.configure(trackInfo.format, null, null, 0)
             decoder!!.start()
+            initialization.complete(trackInfo.durationMs)
 
             val inputBufferInfo = MediaCodec.BufferInfo()
             var inputEOS = false
@@ -199,6 +201,7 @@ class FileAudioProvider(
 
             Log.d(LOG_TAG, "Decoding complete")
         } catch (e: Exception) {
+            initialization.completeExceptionally(e)
             Log.e(LOG_TAG, "Decoding error", e)
         } finally {
             try {
