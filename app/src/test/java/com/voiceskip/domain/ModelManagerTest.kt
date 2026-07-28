@@ -50,19 +50,22 @@ class ModelManagerTest {
     private lateinit var mockAssets: AssetManager
 
     private val modelFlow = MutableStateFlow("ggml-base.en.bin")
-    private val gpuEnabledFlow = MutableStateFlow(true)
     private val turboModeHasBeenSetFlow = MutableStateFlow(true)
+
+    private fun setGpuEnabledSetting(enabled: Boolean) {
+        fakeSettingsRepository.setSettings(
+            fakeSettingsRepository.getPersistedSettings().copy(gpuEnabled = enabled)
+        )
+    }
 
     @Before
     fun setup() {
         fakeRepository = FakeTranscriptionRepository()
         fakeModelRepository = FakeModelRepository()
         fakeSettingsRepository = FakeSettingsRepository()
-        fakeSettingsRepository.onGpuDisabledPersisted = { gpuEnabledFlow.value = false }
 
         mockUserPreferences = mockk(relaxed = true) {
             every { model } returns modelFlow
-            every { gpuEnabled } returns gpuEnabledFlow
             every { turboModeHasBeenSet } returns turboModeHasBeenSetFlow
             every { isGpuInProgress() } returns false
             every { setGpuInProgress(any()) } just Runs
@@ -436,7 +439,7 @@ class ModelManagerTest {
         advanceUntilIdle()
 
         fakeRepository.resetCallTracking()
-        gpuEnabledFlow.value = false
+        setGpuEnabledSetting(false)
 
         modelManager.loadModel(mockAssets)
         advanceUntilIdle()
@@ -517,6 +520,19 @@ class ModelManagerTest {
     }
 
     @Test
+    fun `settings observer does not reload on its first emission`() = runTest {
+        modelManager.loadModel(mockAssets)
+        advanceUntilIdle()
+        fakeRepository.resetCallTracking()
+
+        modelManager.startObservingSettings(mockAssets, backgroundScope)
+        advanceTimeBy(101)
+        runCurrent()
+
+        assertThat(fakeRepository.loadModelCalled).isFalse()
+    }
+
+    @Test
     fun `settings observer reloads with CPU after GPU becomes unavailable`() = runTest {
         every { mockUserPreferences.turboModeEnabled } returns MutableStateFlow(false)
 
@@ -539,7 +555,7 @@ class ModelManagerTest {
             "models/ggml-large.bin" to true,
             "models/ggml-large.bin" to false
         ).inOrder()
-        assertThat(gpuEnabledFlow.value).isFalse()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isFalse()
         assertThat(fakeSettingsRepository.gpuAvailableForCurrentProcess.value).isFalse()
     }
 
@@ -554,7 +570,7 @@ class ModelManagerTest {
         runCurrent()
         fakeRepository.resetCallTracking()
 
-        gpuEnabledFlow.value = false
+        setGpuEnabledSetting(false)
         advanceTimeBy(101)
         runCurrent()
 
@@ -564,7 +580,7 @@ class ModelManagerTest {
         assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
 
         fakeRepository.resetCallTracking()
-        gpuEnabledFlow.value = true
+        setGpuEnabledSetting(true)
         advanceTimeBy(101)
         runCurrent()
 
@@ -658,7 +674,7 @@ class ModelManagerTest {
         advanceUntilIdle()
 
         assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
-        assertThat(gpuEnabledFlow.value).isFalse()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isFalse()
         assertThat(modelManager.gpuFallbackReason.value)
             .isEqualTo(ModelManager.GpuFallbackReason.UNAVAILABLE)
     }
@@ -695,7 +711,7 @@ class ModelManagerTest {
 
     @Test
     fun `loadModel detects previous crash and falls back to CPU`() = runTest {
-        gpuEnabledFlow.value = true
+        setGpuEnabledSetting(true)
         every { mockUserPreferences.isGpuInProgress() } returns true
 
         modelManager.loadModel(mockAssets)
@@ -704,7 +720,7 @@ class ModelManagerTest {
         verify { mockUserPreferences.setGpuInProgress(false) }
         assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
         // Persisted, so the next launch does not retry the GPU load that killed this process.
-        assertThat(gpuEnabledFlow.value).isFalse()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isFalse()
         assertThat(modelManager.gpuFallbackReason.value)
             .isEqualTo(ModelManager.GpuFallbackReason.CRASH)
         assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
@@ -715,10 +731,7 @@ class ModelManagerTest {
         every { mockUserPreferences.isGpuInProgress() } returns true
         val order = mutableListOf<String>()
         every { mockUserPreferences.setGpuInProgress(false) } answers { order += "clearCrashFlag" }
-        fakeSettingsRepository.onGpuDisabledPersisted = {
-            gpuEnabledFlow.value = false
-            order += "persistGpuDisable"
-        }
+        fakeSettingsRepository.onGpuDisabledPersisted = { order += "persistGpuDisable" }
 
         modelManager.loadModel(mockAssets)
         advanceUntilIdle()
@@ -736,13 +749,13 @@ class ModelManagerTest {
 
         // Nothing else would stop the next launch from retrying the crashing GPU load.
         verify(exactly = 0) { mockUserPreferences.setGpuInProgress(false) }
-        assertThat(gpuEnabledFlow.value).isTrue()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isTrue()
         assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
     }
 
     @Test
     fun `loadModel sets flag before GPU load and clears after`() = runTest {
-        gpuEnabledFlow.value = true
+        setGpuEnabledSetting(true)
         every { mockUserPreferences.isGpuInProgress() } returns false
 
         modelManager.loadModel(mockAssets)
@@ -756,7 +769,7 @@ class ModelManagerTest {
 
     @Test
     fun `loadModel skips crash flag for CPU-only load`() = runTest {
-        gpuEnabledFlow.value = false
+        setGpuEnabledSetting(false)
 
         modelManager.loadModel(mockAssets)
         advanceUntilIdle()

@@ -31,7 +31,7 @@ class FakeSettingsRepository : SettingsRepository {
         )
     )
     private val _gpuAvailableForCurrentProcess = MutableStateFlow(true)
-    override val gpuAvailableForCurrentProcess: StateFlow<Boolean> =
+    val gpuAvailableForCurrentProcess: StateFlow<Boolean> =
         _gpuAvailableForCurrentProcess.asStateFlow()
     override val userSettings: Flow<UserSettings> = combine(
         _userSettings,
@@ -53,7 +53,7 @@ class FakeSettingsRepository : SettingsRepository {
     // UserPreferences.turboModeHasBeenSet; tests use this hook to close that loop.
     var onTurboDecisionRecorded: (() -> Unit)? = null
 
-    // Same loop for the GPU setting: ModelManager reads it back as UserPreferences.gpuEnabled.
+    // Ordering probe: fires when the disable reaches the persisted settings.
     var onGpuDisabledPersisted: (() -> Unit)? = null
 
     var updateResult: Result<Unit> = Result.success(Unit)

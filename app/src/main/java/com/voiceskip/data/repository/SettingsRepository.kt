@@ -3,7 +3,6 @@
 package com.voiceskip.data.repository
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 data class UserSettings(
     val listenModeEnabled: Boolean,
@@ -18,7 +17,6 @@ data class UserSettings(
 
 interface SettingsRepository {
     val userSettings: Flow<UserSettings>
-    val gpuAvailableForCurrentProcess: StateFlow<Boolean>
 
     fun getDefaultModel(): String
     fun getDefaultNumThreads(): Int

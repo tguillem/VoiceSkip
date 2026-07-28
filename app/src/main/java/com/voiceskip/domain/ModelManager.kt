@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -134,8 +136,7 @@ class ModelManager @Inject constructor(
 
         return runCatching {
             var requestedModel = userPreferences.model.first()
-            var gpuEnabled = userPreferences.gpuEnabled.first() &&
-                settingsRepository.gpuAvailableForCurrentProcess.value
+            var gpuEnabled = settingsRepository.userSettings.first().gpuEnabled
 
             if (gpuEnabled && userPreferences.isGpuInProgress()) {
                 VoiceSkipLogger.w("Previous GPU operation crashed, falling back to CPU")
@@ -416,17 +417,11 @@ class ModelManager @Inject constructor(
     fun startObservingSettings(assets: AssetManager, scope: CoroutineScope) {
         var previousModel: String? = null
         var previousGpuEnabled: Boolean? = null
-        val gpuEnabledForCurrentProcess = combine(
-            userPreferences.gpuEnabled,
-            settingsRepository.gpuAvailableForCurrentProcess
-        ) { gpuEnabled, gpuAvailable ->
-            gpuEnabled && gpuAvailable
-        }
 
         scope.launch {
             combine(
                 userPreferences.model,
-                gpuEnabledForCurrentProcess,
+                settingsRepository.userSettings.map { it.gpuEnabled }.distinctUntilChanged(),
                 userPreferences.turboModeEnabled,
                 modelReloadGeneration
             ) { model, gpu, turbo, reloadGeneration ->

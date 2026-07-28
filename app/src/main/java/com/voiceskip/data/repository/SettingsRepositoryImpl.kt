@@ -7,17 +7,13 @@ import com.voiceskip.util.VoiceSkipLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 
 class SettingsRepositoryImpl(
     private val userPreferences: UserPreferences
 ) : SettingsRepository {
 
-    private val _gpuAvailableForCurrentProcess = MutableStateFlow(true)
-    override val gpuAvailableForCurrentProcess: StateFlow<Boolean> =
-        _gpuAvailableForCurrentProcess.asStateFlow()
+    private val gpuAvailableForCurrentProcess = MutableStateFlow(true)
 
     override fun getDefaultModel(): String = userPreferences.getDefaultModelForContext()
 
@@ -60,7 +56,7 @@ class SettingsRepositoryImpl(
     )
 
     override suspend fun disableGpuAfterFailure(): Result<Unit> {
-        _gpuAvailableForCurrentProcess.value = false
+        gpuAvailableForCurrentProcess.value = false
         return try {
             userPreferences.setGpuEnabled(false)
             Result.success(Unit)
@@ -89,7 +85,7 @@ class SettingsRepositoryImpl(
     override suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit> {
         // Re-arming here would both hand a bad GPU context back to whisper and undo the
         // persisted disable, so the toggle stays inert until the process restarts.
-        if (enabled && !_gpuAvailableForCurrentProcess.value) {
+        if (enabled && !gpuAvailableForCurrentProcess.value) {
             return Result.success(Unit)
         }
         return runCatching {
