@@ -295,6 +295,35 @@ class MainScreenViewModelTest {
         }
     }
 
+    @Test
+    fun `GPU failure stops retrying when the CPU model fails to load`() = runTest {
+        modelStateFlow.value = ModelManager.ModelState.Loaded("ggml-small.bin", "Adreno 730")
+        fakeTranscriptionRepository.setCurrentTranscriptionSource(
+            TranscriptionSource.FileUri(mockk<Uri>())
+        )
+
+        fakeTranscriptionRepository.setState(
+            TranscriptionState.Error(
+                message = "Vulkan failed",
+                recoverable = true,
+                gpuWasEnabled = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.transcriptionFailureReason)
+            .isEqualTo(TranscriptionFailureReason.GPU_FAILURE_RETRYING)
+
+        modelStateFlow.value = ModelManager.ModelState.Error(RuntimeException("no model"))
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.transcriptionFailureReason)
+            .isEqualTo(TranscriptionFailureReason.GENERIC_FAILURE)
+        coVerify(exactly = 0) {
+            mockServiceLauncher.startFileTranscription(any(), any())
+        }
+    }
+
     // =========================================================================
     // State Composition Tests
     // =========================================================================

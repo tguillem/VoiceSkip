@@ -347,8 +347,15 @@ class MainScreenViewModel @Inject constructor(
                 repository.clearState()
 
                 settingsRepository.disableGpuAfterFailure()
-                modelManager.modelState.first {
-                    it is ModelManager.ModelState.Loaded && it.gpuInfo == null
+                val reloaded = modelManager.modelState.first {
+                    (it is ModelManager.ModelState.Loaded && it.gpuInfo == null) ||
+                        it is ModelManager.ModelState.Error
+                }
+                // Waiting for a CPU model that will never arrive would leave the UI announcing
+                // a retry forever; the load error itself is already on screen.
+                if (reloaded is ModelManager.ModelState.Error) {
+                    _transcriptionFailureReason.value = TranscriptionFailureReason.GENERIC_FAILURE
+                    return@launch
                 }
 
                 retryTranscription(source, language)
