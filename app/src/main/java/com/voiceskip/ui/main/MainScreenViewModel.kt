@@ -346,11 +346,10 @@ class MainScreenViewModel @Inject constructor(
 
                 repository.clearState()
 
-                settingsRepository.updateGpuEnabled(false)
-
-                // Wait for model to start reloading, then finish loading
-                modelManager.modelState.first { it is ModelManager.ModelState.Loading }
-                modelManager.modelState.first { it is ModelManager.ModelState.Loaded }
+                settingsRepository.disableGpuAfterFailure()
+                modelManager.modelState.first {
+                    it is ModelManager.ModelState.Loaded && it.gpuInfo == null
+                }
 
                 retryTranscription(source, language)
             }

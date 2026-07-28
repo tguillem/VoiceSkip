@@ -7,7 +7,9 @@ import com.voiceskip.data.repository.SettingsRepository
 import com.voiceskip.data.repository.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 
 class FakeSettingsRepository : SettingsRepository {
@@ -28,7 +30,14 @@ class FakeSettingsRepository : SettingsRepository {
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
     )
-    override val userSettings: Flow<UserSettings> = _userSettings.asStateFlow()
+    private val _gpuAvailableForCurrentProcess = MutableStateFlow(true)
+    override val gpuAvailableForCurrentProcess: StateFlow<Boolean> =
+        _gpuAvailableForCurrentProcess.asStateFlow()
+    override val userSettings: Flow<UserSettings> = combine(
+        _userSettings,
+        gpuAvailableForCurrentProcess,
+        ::applyProcessOverrides
+    )
 
     var updateListenModeEnabledCalled = false
     var updateTranslateToEnglishCalled = false
@@ -38,12 +47,33 @@ class FakeSettingsRepository : SettingsRepository {
     var updateVadEnabledCalled = false
     var updateNumThreadsCalled = false
     var updateDefaultLanguageCalled = false
+    var disableGpuAfterFailureCalled = false
 
     // ModelManager writes this through the repository but reads it back as
     // UserPreferences.turboModeHasBeenSet; tests use this hook to close that loop.
     var onTurboDecisionRecorded: (() -> Unit)? = null
 
+    // Same loop for the GPU setting: ModelManager reads it back as UserPreferences.gpuEnabled.
+    var onGpuDisabledPersisted: (() -> Unit)? = null
+
     var updateResult: Result<Unit> = Result.success(Unit)
+    var disableGpuResult: Result<Unit> = Result.success(Unit)
+
+    override suspend fun disableGpuAfterFailure(): Result<Unit> {
+        disableGpuAfterFailureCalled = true
+        _gpuAvailableForCurrentProcess.value = false
+        return disableGpuResult.also {
+            if (it.isFailure) return@also
+            _userSettings.update { settings ->
+                settings.copy(
+                    gpuEnabled = false,
+                    turboModeEnabled = false,
+                    numThreads = cpuDefaultThreads
+                )
+            }
+            onGpuDisabledPersisted?.invoke()
+        }
+    }
 
     override suspend fun updateListenModeEnabled(enabled: Boolean): Result<Unit> {
         updateListenModeEnabledCalled = true
@@ -74,9 +104,12 @@ class FakeSettingsRepository : SettingsRepository {
 
     override suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit> {
         updateGpuEnabledCalled = true
+        if (enabled && !_gpuAvailableForCurrentProcess.value) {
+            return Result.success(Unit)
+        }
         return updateResult.also {
             if (it.isSuccess) {
-                val defaultThreads = if (enabled) 1 else (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
+                val defaultThreads = if (enabled) 1 else cpuDefaultThreads
                 _userSettings.update { settings ->
                     settings.copy(gpuEnabled = enabled, numThreads = defaultThreads)
                 }
@@ -130,7 +163,10 @@ class FakeSettingsRepository : SettingsRepository {
         _userSettings.value = settings
     }
 
-    fun getCurrentSettings(): UserSettings = _userSettings.value
+    fun getCurrentSettings(): UserSettings =
+        applyProcessOverrides(_userSettings.value, _gpuAvailableForCurrentProcess.value)
+
+    fun getPersistedSettings(): UserSettings = _userSettings.value
 
     fun reset() {
         _userSettings.value = UserSettings(
@@ -143,6 +179,7 @@ class FakeSettingsRepository : SettingsRepository {
             numThreads = 4,
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
+        _gpuAvailableForCurrentProcess.value = true
         updateListenModeEnabledCalled = false
         updateTranslateToEnglishCalled = false
         updateModelCalled = false
@@ -151,7 +188,22 @@ class FakeSettingsRepository : SettingsRepository {
         updateVadEnabledCalled = false
         updateNumThreadsCalled = false
         updateDefaultLanguageCalled = false
+        disableGpuAfterFailureCalled = false
         onTurboDecisionRecorded = null
+        onGpuDisabledPersisted = null
         updateResult = Result.success(Unit)
+        disableGpuResult = Result.success(Unit)
+    }
+
+    private fun applyProcessOverrides(
+        settings: UserSettings,
+        gpuAvailable: Boolean
+    ): UserSettings {
+        if (gpuAvailable || !settings.gpuEnabled) return settings
+        return settings.copy(gpuEnabled = false, turboModeEnabled = false)
+    }
+
+    private companion object {
+        val cpuDefaultThreads = (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(1)
     }
 }

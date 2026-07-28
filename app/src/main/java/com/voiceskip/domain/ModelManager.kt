@@ -134,12 +134,17 @@ class ModelManager @Inject constructor(
 
         return runCatching {
             var requestedModel = userPreferences.model.first()
-            var gpuEnabled = userPreferences.gpuEnabled.first()
+            var gpuEnabled = userPreferences.gpuEnabled.first() &&
+                settingsRepository.gpuAvailableForCurrentProcess.value
 
             if (gpuEnabled && userPreferences.isGpuInProgress()) {
                 VoiceSkipLogger.w("Previous GPU operation crashed, falling back to CPU")
-                userPreferences.setGpuInProgress(false)
-                userPreferences.setGpuEnabled(false)
+                // The crash marker is the only thing left stopping the next launch from
+                // retrying the load that killed the process, so it may not be cleared until
+                // the persisted disable has taken its place.
+                if (settingsRepository.disableGpuAfterFailure().isSuccess) {
+                    userPreferences.setGpuInProgress(false)
+                }
                 gpuEnabled = false
                 _gpuFallbackReason.value = GpuFallbackReason.CRASH
             }
@@ -268,8 +273,8 @@ class ModelManager @Inject constructor(
             }
 
             if (gpuEnabled && gpuInfo == null) {
-                VoiceSkipLogger.w("GPU requested but unavailable, disabling GPU setting")
-                userPreferences.setGpuEnabled(false)
+                VoiceSkipLogger.w("GPU requested but unavailable, disabling GPU")
+                settingsRepository.disableGpuAfterFailure()
                 _gpuFallbackReason.value = GpuFallbackReason.UNAVAILABLE
             }
             _modelState.value = ModelState.Loaded(modelId, gpuInfo)
@@ -411,11 +416,17 @@ class ModelManager @Inject constructor(
     fun startObservingSettings(assets: AssetManager, scope: CoroutineScope) {
         var previousModel: String? = null
         var previousGpuEnabled: Boolean? = null
+        val gpuEnabledForCurrentProcess = combine(
+            userPreferences.gpuEnabled,
+            settingsRepository.gpuAvailableForCurrentProcess
+        ) { gpuEnabled, gpuAvailable ->
+            gpuEnabled && gpuAvailable
+        }
 
         scope.launch {
             combine(
                 userPreferences.model,
-                userPreferences.gpuEnabled,
+                gpuEnabledForCurrentProcess,
                 userPreferences.turboModeEnabled,
                 modelReloadGeneration
             ) { model, gpu, turbo, reloadGeneration ->

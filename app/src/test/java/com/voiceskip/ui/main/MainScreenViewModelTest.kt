@@ -11,6 +11,7 @@ import com.google.common.truth.Truth.assertThat
 import com.voiceskip.StartupConfig
 import com.voiceskip.TestDispatcherRule
 import com.voiceskip.data.repository.PlaybackState
+import com.voiceskip.data.repository.TranscriptionSource
 import com.voiceskip.data.repository.TranscriptionState
 import com.voiceskip.domain.usecase.AudioListenUseCase
 import com.voiceskip.fake.FakeSavedTranscriptionRepository
@@ -241,6 +242,56 @@ class MainScreenViewModelTest {
             assertThat((state.screenState as TranscriptionUiState.Error).message)
                 .isEqualTo("Test error message")
             assertThat(state.errorMessage).isEqualTo("Test error message")
+        }
+    }
+
+    @Test
+    fun `GPU failure retries original file after CPU model reload`() = runTest {
+        val uri = mockk<Uri>()
+        val model = "ggml-small.bin"
+
+        modelStateFlow.value = ModelManager.ModelState.Loaded(model, "Adreno 730")
+        fakeTranscriptionRepository.setCurrentTranscriptionSource(
+            TranscriptionSource.FileUri(uri)
+        )
+        fakeTranscriptionRepository.setSessionLanguage("fr")
+
+        fakeTranscriptionRepository.setState(
+            TranscriptionState.Error(
+                message = "Vulkan failed",
+                recoverable = true,
+                gpuWasEnabled = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
+        assertThat(fakeSettingsRepository.getCurrentSettings().gpuEnabled).isFalse()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isFalse()
+        assertThat(fakeTranscriptionRepository.clearStateCalled).isTrue()
+        coVerify(exactly = 0) {
+            mockServiceLauncher.startFileTranscription(any(), any())
+        }
+
+        modelStateFlow.value = ModelManager.ModelState.Loading(model, useGpu = false)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            mockServiceLauncher.startFileTranscription(any(), any())
+        }
+
+        modelStateFlow.value = ModelManager.ModelState.Loaded(model, "Adreno 730")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            mockServiceLauncher.startFileTranscription(any(), any())
+        }
+
+        modelStateFlow.value = ModelManager.ModelState.Loaded(model, gpuInfo = null)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            mockServiceLauncher.startFileTranscription(uri, "fr")
         }
     }
 

@@ -33,6 +33,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelManagerTest {
@@ -57,6 +58,7 @@ class ModelManagerTest {
         fakeRepository = FakeTranscriptionRepository()
         fakeModelRepository = FakeModelRepository()
         fakeSettingsRepository = FakeSettingsRepository()
+        fakeSettingsRepository.onGpuDisabledPersisted = { gpuEnabledFlow.value = false }
 
         mockUserPreferences = mockk(relaxed = true) {
             every { model } returns modelFlow
@@ -517,9 +519,6 @@ class ModelManagerTest {
     @Test
     fun `settings observer reloads with CPU after GPU becomes unavailable`() = runTest {
         every { mockUserPreferences.turboModeEnabled } returns MutableStateFlow(false)
-        coEvery { mockUserPreferences.setGpuEnabled(false) } coAnswers {
-            gpuEnabledFlow.value = false
-        }
 
         modelManager.loadModel(mockAssets)
         modelManager.startObservingSettings(mockAssets, backgroundScope)
@@ -540,6 +539,8 @@ class ModelManagerTest {
             "models/ggml-large.bin" to true,
             "models/ggml-large.bin" to false
         ).inOrder()
+        assertThat(gpuEnabledFlow.value).isFalse()
+        assertThat(fakeSettingsRepository.gpuAvailableForCurrentProcess.value).isFalse()
     }
 
     @Test
@@ -650,13 +651,14 @@ class ModelManagerTest {
     // =========================================================================
 
     @Test
-    fun `GPU fallback disables setting and shows message`() = runTest {
+    fun `GPU fallback disables GPU for this process and the next launch`() = runTest {
         fakeRepository.loadModelGpuResult = null
 
         modelManager.loadModel(mockAssets)
         advanceUntilIdle()
 
-        coVerify { mockUserPreferences.setGpuEnabled(false) }
+        assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
+        assertThat(gpuEnabledFlow.value).isFalse()
         assertThat(modelManager.gpuFallbackReason.value)
             .isEqualTo(ModelManager.GpuFallbackReason.UNAVAILABLE)
     }
@@ -669,6 +671,7 @@ class ModelManagerTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { mockUserPreferences.setGpuEnabled(false) }
+        assertThat(fakeSettingsRepository.gpuAvailableForCurrentProcess.value).isTrue()
         assertThat(modelManager.gpuFallbackReason.value).isNull()
     }
 
@@ -699,9 +702,41 @@ class ModelManagerTest {
         advanceUntilIdle()
 
         verify { mockUserPreferences.setGpuInProgress(false) }
-        coVerify { mockUserPreferences.setGpuEnabled(false) }
+        assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
+        // Persisted, so the next launch does not retry the GPU load that killed this process.
+        assertThat(gpuEnabledFlow.value).isFalse()
         assertThat(modelManager.gpuFallbackReason.value)
             .isEqualTo(ModelManager.GpuFallbackReason.CRASH)
+        assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
+    }
+
+    @Test
+    fun `crash recovery persists the GPU disable before clearing the crash flag`() = runTest {
+        every { mockUserPreferences.isGpuInProgress() } returns true
+        val order = mutableListOf<String>()
+        every { mockUserPreferences.setGpuInProgress(false) } answers { order += "clearCrashFlag" }
+        fakeSettingsRepository.onGpuDisabledPersisted = {
+            gpuEnabledFlow.value = false
+            order += "persistGpuDisable"
+        }
+
+        modelManager.loadModel(mockAssets)
+        advanceUntilIdle()
+
+        assertThat(order).containsExactly("persistGpuDisable", "clearCrashFlag").inOrder()
+    }
+
+    @Test
+    fun `crash recovery keeps the crash flag when the GPU disable cannot be persisted`() = runTest {
+        every { mockUserPreferences.isGpuInProgress() } returns true
+        fakeSettingsRepository.disableGpuResult = Result.failure(IOException("datastore"))
+
+        modelManager.loadModel(mockAssets)
+        advanceUntilIdle()
+
+        // Nothing else would stop the next launch from retrying the crashing GPU load.
+        verify(exactly = 0) { mockUserPreferences.setGpuInProgress(false) }
+        assertThat(gpuEnabledFlow.value).isTrue()
         assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
     }
 
