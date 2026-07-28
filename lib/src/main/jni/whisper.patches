@@ -1716,3 +1716,45 @@ index 8cc455db..c806bfdf 100644
 -- 
 2.47.3
 
+
+From e0fd3293d9b38c89c457138454c009156ae555d0 Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Tue, 28 Jul 2026 13:52:56 +0000
+Subject: [PATCH 24/24] whisper: contain inference exceptions
+
+Let callers handle inference failures through the existing return value instead
+of terminating when a backend exception crosses the C API boundary.
+---
+ src/whisper.cpp | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/src/whisper.cpp b/src/whisper.cpp
+index a068f8b6..17747c1d 100644
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -7841,7 +7841,7 @@ int whisper_full(
+         struct whisper_context * ctx,
+     struct whisper_full_params   params,
+                    const float * samples,
+-                           int   n_samples) {
++                           int   n_samples) try {
+ 
+     std::vector<float> vad_samples;
+     if (params.vad) {
+@@ -7863,6 +7863,14 @@ int whisper_full(
+     }
+     return whisper_full_with_state(ctx, ctx->state, params, samples, n_samples);
+ }
++catch (const std::exception & e) {
++    WHISPER_LOG_ERROR("whisper_full: exception: %s\n", e.what());
++    return -1;
++}
++catch (...) {
++    WHISPER_LOG_ERROR("whisper_full: unknown exception\n");
++    return -1;
++}
+ 
+ int whisper_full_parallel(
+         struct whisper_context * ctx,
+-- 
+2.47.3
