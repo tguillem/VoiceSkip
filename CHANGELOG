@@ -1,3 +1,8 @@
+1.0.5
+-----
+- Fix crashes on Adreno GPUs by falling back to CPU before inference
+- Recover from Vulkan inference failures by retrying on CPU
+
 1.0.4
 -----
 - Update whisper.cpp to 080bbbe8 (6 months of upstream improvements)
