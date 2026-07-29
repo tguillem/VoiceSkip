@@ -1,6 +1,7 @@
 PREFIX ?= /usr/local
 
 CC      := gcc
+CXX     := g++
 CFLAGS  := -I$(PREFIX)/include -O2 -Wall
 LDFLAGS := -L$(PREFIX)/lib -Wl,-rpath,$(PREFIX)/lib -lwhisper -lavformat -lavcodec -lavutil -lswresample -lpthread -lm
 
@@ -14,10 +15,18 @@ CFLAGS  := -I$(PREFIX)/include -g -Og -fno-omit-frame-pointer -fsanitize=thread 
 LDFLAGS += -fsanitize=thread
 endif
 
-stream_test: stream.c stream_test.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+# Linked with the C++ driver because whisper_guard.cpp is what keeps a backend
+# exception from unwinding into stream.c.
+stream_test: stream.o stream_test.o whisper_guard.o
+	$(CXX) -o $@ $^ $(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+%.o: %.cpp
+	$(CXX) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f stream_test
+	rm -f stream_test *.o
 
 .PHONY: clean

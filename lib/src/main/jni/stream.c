@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "stream.h"
+#include "whisper_guard.h"
 
 #include <assert.h>
 #include <math.h>
@@ -647,8 +648,8 @@ process_one_chunk(struct thread_ctx *tctx)
     tctx->chunk_idx = chunk_idx;
 
     TCTX_LOGI(tctx, "chunk %d: start\n", chunk_idx);
-    int ret = whisper_full(tctx->ctx, params, tctx->buffer,
-                           ci.actual_chunk_samples);
+    int ret = voiceskip_whisper_full(tctx->ctx, params, tctx->buffer,
+                                     ci.actual_chunk_samples);
     TCTX_LOGI(tctx, "chunk %d: done: %d\n", chunk_idx, ret);
 
     bool aborted = false;
