@@ -18,7 +18,7 @@
 #include "whisper.h"
 #include "stream.h"
 #include "ggml.h"
-#include "ggml-vulkan.h"
+#include "gpu_probe.h"
 
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
@@ -432,19 +432,59 @@ file_close(void *ctx)
     fclose(file);
 }
 
+/* One-way for the process. A GPU that failed once tends to keep failing, and
+ * the driver state behind it is shared by every context, so nothing re-arms it
+ * before a restart. Mirrors SettingsRepositoryImpl.disableGpuAfterFailure(). */
+static atomic_bool g_gpu_disabled;
+
+static void
+disable_gpu_for_process(void)
+{
+    atomic_store(&g_gpu_disabled, true);
+}
+
+static bool
+gpu_disabled_for_process(void)
+{
+    return atomic_load(&g_gpu_disabled);
+}
+
 static bool
 is_gpu_blocklisted(const char *desc)
 {
-    size_t len = strlen(desc);
-
     /* Adreno 6xx-7xx series (tested until 730) cause VK_ERROR_DEVICE_LOST or
-     * fail to link some  shaders */
-    if (strncmp(desc, "Adreno", 6) == 0)
+     * fail to link some shaders. Mesa/Turnip prefixes its own name onto the
+     * same silicon, so match anywhere rather than on the prefix. */
+    return strstr(desc, "Adreno") != NULL;
+}
+
+/* Whisper keeps whatever backend it was constructed with, so this has to run
+ * before whisper_init_with_params(): reporting CPU afterwards renames a Vulkan
+ * context, it does not replace it, and the first inference still reaches the
+ * driver the blocklist exists to avoid. */
+static bool
+should_use_gpu(char *desc, size_t desc_size)
+{
+    if (gpu_disabled_for_process())
     {
-        return true;
+        return false;
     }
 
-    return false;
+    if (!voiceskip_probe_gpu(desc, desc_size))
+    {
+        LOGI("No GPU available");
+        disable_gpu_for_process();
+        return false;
+    }
+
+    if (is_gpu_blocklisted(desc))
+    {
+        LOGI("GPU blocklisted: %s", desc);
+        disable_gpu_for_process();
+        return false;
+    }
+
+    return true;
 }
 
 static void
@@ -454,6 +494,13 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
     static const char *slot_names[] = { "ctx0", "ctx1" };
     struct whisper_stream_slot *slot = &ctx->slots[slot_idx];
     const char *slot_name = slot_names[slot_idx];
+
+    /* Cleared up front because the unload and load-failure returns below skip
+     * the reporting block, and a stale true would describe the freed context. */
+    if (slot_idx == SLOT_MAIN)
+    {
+        ctx->use_gpu = false;
+    }
 
     if (slot->ctx)
     {
@@ -484,8 +531,12 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
         return;
     }
 
+    char gpu_desc[256];
+    bool use_gpu = args->use_gpu && slot_idx == SLOT_MAIN &&
+                   should_use_gpu(gpu_desc, sizeof gpu_desc);
+
     struct whisper_context_params cparams = whisper_context_default_params();
-    cparams.flash_attn = cparams.use_gpu = args->use_gpu;
+    cparams.flash_attn = cparams.use_gpu = use_gpu;
     cparams.gpu_device = 0;
 
     if (args->model_fd >= 0)
@@ -544,6 +595,10 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
             args->vad_model_path, AASSET_MODE_STREAMING);
         if (!vad_asset)
         {
+            /* Keeping the model would leave a live context that ctx->use_gpu no
+             * longer describes, so a later start could run it unguarded. */
+            whisper_free(slot->ctx);
+            slot->ctx = NULL;
             report_error(env, ctx,
                 "Failed to open VAD model '%s' from assets", args->vad_model_path);
             return;
@@ -565,6 +620,8 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
 
         if (!slot->vad_ctx)
         {
+            whisper_free(slot->ctx);
+            slot->ctx = NULL;
             report_error(env, ctx,
                 "Failed to load %s VAD model '%s': initialization failed",
                 slot_name, args->vad_model_path);
@@ -572,36 +629,29 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
         }
     }
 
-    jstring gpu_desc = NULL;
-    if (slot_idx == SLOT_MAIN)
+    jstring gpu_name = NULL;
+    if (use_gpu)
     {
-        char desc[256];
-        ctx->use_gpu = false;
-        if (args->use_gpu)
+        /* Whisper drops to CPU on its own when the Vulkan backend fails to
+         * initialise, so the context it built is the authority here, not the
+         * decision that was fed to it. */
+        if (whisper_ctx_is_using_gpu(slot->ctx))
         {
-            bool use_gpu = whisper_ctx_is_using_gpu(slot->ctx);
-            int vk_device_count = ggml_backend_vk_get_device_count();
-            if (use_gpu && vk_device_count > 0)
-            {
-                ggml_backend_vk_get_device_description(0, desc, sizeof(desc));
-                if (!is_gpu_blocklisted(desc))
-                {
-                    gpu_desc = (*env)->NewStringUTF(env, desc);
-                    ctx->use_gpu = true;
-                }
-                else
-                {
-                    LOGI("GPU blocklisted: %s", desc);
-                }
-            }
+            gpu_name = (*env)->NewStringUTF(env, gpu_desc);
+            ctx->use_gpu = true;
+        }
+        else
+        {
+            LOGI("GPU requested but whisper loaded on CPU");
+            disable_gpu_for_process();
         }
     }
 
     (*env)->CallVoidMethod(env, ctx->java_context,
-                           ctx->mid_on_loaded, (jint)slot_idx, gpu_desc);
+                           ctx->mid_on_loaded, (jint)slot_idx, gpu_name);
     jni_check_exception(env);
-    if (gpu_desc)
-        (*env)->DeleteLocalRef(env, gpu_desc);
+    if (gpu_name)
+        (*env)->DeleteLocalRef(env, gpu_name);
 
     LOGI("[%s] Loaded", slot_name);
 }
@@ -750,6 +800,22 @@ process_start_command(struct whisper_jni_context *ctx,
                  args->session_id, current_session);
         return;
     }
+
+    /* A backend failure can leave the ggml scheduler allocated, and the next
+     * whisper_full() on that context aborts on GGML_ASSERT(!sched->is_alloc).
+     * Reported as a failed stream rather than an error because only that path
+     * carries gpuWasEnabled up to Java, which is what makes the app disable the
+     * GPU and reload on CPU; an error would just show a generic failure and
+     * leave every later start refused. */
+    if (ctx->use_gpu && gpu_disabled_for_process())
+    {
+        LOGE("GPU failed earlier, refusing to reuse the GPU context");
+        (*env)->CallVoidMethod(env, ctx->java_context,
+                               ctx->mid_on_stream_complete, false);
+        jni_check_exception(env);
+        return;
+    }
+
     atomic_store(&ctx->lang_override, -1);
     ctx->start_session_id = args->session_id;
 
@@ -794,6 +860,12 @@ process_start_command(struct whisper_jni_context *ctx,
     bool was_stopped = (ctx->start_session_id != session_after);
 
     LOGI("Stream finished: result=%d, stopped=%d", result, was_stopped);
+
+    if (result == WHISPER_STREAM_FAILED && ctx->use_gpu)
+    {
+        LOGE("Inference failed on GPU, disabling it for this process");
+        disable_gpu_for_process();
+    }
 
     if (!was_stopped)
     {

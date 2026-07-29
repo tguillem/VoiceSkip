@@ -68,6 +68,7 @@ set(
     ${WHISPER_LIB_DIR}/src/whisper.cpp
     ${CMAKE_SOURCE_DIR}/jni.c
     ${CMAKE_SOURCE_DIR}/stream.c
+    ${CMAKE_SOURCE_DIR}/gpu_probe.cpp
     )
 
 find_library(LOG_LIB log)
