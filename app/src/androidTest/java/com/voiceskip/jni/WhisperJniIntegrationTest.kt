@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import com.voiceskip.data.source.TranscriptionEvent
 import com.voiceskip.data.source.TranscriptionThreadCounts
 import com.voiceskip.data.source.WhisperDataSource
@@ -27,6 +28,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 
 private const val TAG = "WhisperJniTest"
 
@@ -226,6 +228,105 @@ class WhisperJniIntegrationTest {
         assertTrue("Expected multiple segments for long audio", segments.size > 5)
         assertTrue("Expected substantial text", segments.sumOf { it.segment.text.length } > 50)
         Log.i(TAG, "transcribeLongAudio: DONE")
+    }
+
+    /**
+     * The blocklist used to be applied after the context was built, so a device that fell
+     * back kept a Vulkan-backed context that reported CPU: the first inference failed on the
+     * driver and the second aborted the process on GGML_ASSERT(!sched->is_alloc).
+     *
+     * Only a device that actually falls back can show the difference, so this skips on one
+     * that ends up running on its GPU rather than passing without having covered anything.
+     * The blocklist check itself is asserted first, because a device the blocklist misses
+     * reports an active GPU and would otherwise skip instead of failing.
+     */
+    @Test
+    fun requestGpu_fallsBackAndTranscribesTwiceInSameProcess(): Unit = runBlocking {
+        Log.i(TAG, "requestGpu: START")
+
+        testScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        whisperDataSource = WhisperDataSourceImpl()
+        val dataSource = whisperDataSource!!
+
+        dataSource.loadModel(
+            context.assets,
+            WhisperTestUtils.MODEL_SMALL,
+            WhisperTestUtils.VAD_MODEL,
+            useGpu = true
+        )
+
+        val loaded = withTimeout(120_000) {
+            dataSource.events.first { it is TranscriptionEvent.ModelLoaded }
+        } as TranscriptionEvent.ModelLoaded
+        Log.i(TAG, "requestGpu: loaded, gpuInfo=${loaded.gpuInfo}")
+
+        assertTrue(
+            "Blocklisted GPU reported as active: ${loaded.gpuInfo}",
+            loaded.gpuInfo?.contains("Adreno") != true
+        )
+
+        assumeTrue(
+            "Runs on its GPU (${loaded.gpuInfo}), so the fallback is not exercised here",
+            loaded.gpuInfo == null
+        )
+
+        val tempFile = WhisperTestUtils.copyAssetToCache(context, WhisperTestUtils.AUDIO_CLEAR)
+
+        repeat(2) { run ->
+            val (success, text) = transcribeOnce(dataSource, tempFile, WhisperTestUtils.CPU_THREADS)
+            Log.i(TAG, "requestGpu: run ${run + 1} success=$success text='$text'")
+
+            assertTrue("Run ${run + 1} failed after falling back to CPU", success)
+            assertTrue("Run ${run + 1} produced no text after falling back to CPU", text.isNotEmpty())
+        }
+
+        tempFile.delete()
+        Log.i(TAG, "requestGpu: DONE")
+    }
+
+    /** Runs one stream to completion and reports whether it succeeded and what it said. */
+    private suspend fun transcribeOnce(
+        dataSource: WhisperDataSource,
+        file: File,
+        threads: Int
+    ): Pair<Boolean, String> {
+        val segments = mutableListOf<String>()
+        val audioProvider = FileAudioProvider(file = file)
+        audioProvider.startDecoding()
+        dataSource.setDuration(audioProvider.awaitDuration())
+
+        dataSource.startStream(
+            audioProvider = audioProvider,
+            threadCounts = TranscriptionThreadCounts(standard = threads, turbo = threads),
+            language = "en",
+            translate = false
+        )
+
+        var success = false
+        withTimeout(180_000) {
+            dataSource.events.first { event ->
+                when (event) {
+                    is TranscriptionEvent.Segment -> {
+                        segments.add(event.segment.text.trim())
+                        false
+                    }
+                    is TranscriptionEvent.StreamComplete -> {
+                        success = event.success
+                        true
+                    }
+                    // Reported instead of StreamComplete when the start is refused outright,
+                    // so the collection has to end here too or the test just times out.
+                    is TranscriptionEvent.Error -> {
+                        Log.w(TAG, "transcribeOnce: ${event.message}")
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+
+        audioProvider.release()
+        return success to segments.joinToString(" ")
     }
 
     @Test
