@@ -47,6 +47,9 @@ struct common_ctx
     int64_t total_samples_read;
     bool eof;
     atomic_bool abort;
+    /* Distinguishes inference failing from the caller stopping: both abort the
+     * stream, but only the former says anything about the backend. */
+    atomic_bool failed;
     bool single_thread;
 
     int overlap_samples;
@@ -652,6 +655,9 @@ process_one_chunk(struct thread_ctx *tctx)
     if (cctx->abort_cb != NULL && cctx->abort_cb(cctx->abort_cb_user_data))
         aborted = true;
 
+    if (ret != 0 && !aborted)
+        atomic_store(&cctx->failed, true);
+
     if (ret != 0 || aborted)
     {
         set_eof(cctx, true);
@@ -729,6 +735,7 @@ init_common_ctx(struct common_ctx *cctx,
     cctx->total_samples_read = 0;
     cctx->eof = false;
     atomic_init(&cctx->abort, false);
+    atomic_init(&cctx->failed, false);
     cctx->single_thread = single_thread;
 
     cctx->vad_threshold = sparams->vad_threshold;
@@ -880,7 +887,11 @@ whisper_stream_full(struct whisper_full_params params,
         cleanup_thread_ctx(&tctx1);
     }
     cleanup_thread_ctx(&tctx0);
-    int ret = atomic_load(&cctx.abort) ? -1 : 0;
+    int ret = WHISPER_STREAM_OK;
+    if (atomic_load(&cctx.failed))
+        ret = WHISPER_STREAM_FAILED;
+    else if (atomic_load(&cctx.abort))
+        ret = WHISPER_STREAM_STOPPED;
     cleanup_common_ctx(&cctx);
 
     return ret;

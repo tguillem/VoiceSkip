@@ -65,9 +65,14 @@ struct whisper_stream_params
 struct whisper_stream_params
 whisper_stream_default_params(bool live);
 
+#define WHISPER_STREAM_OK       0
+#define WHISPER_STREAM_STOPPED -1
+/* Inference failed on its own, so the backend may be unusable. Reported apart
+ * from STOPPED because stopping also aborts the stream. */
+#define WHISPER_STREAM_FAILED  -2
+
 /* Process audio in chunks, splitting at silence boundaries.
- * stream_params.ctx1 enables parallel processing (NULL for single context).
- * Returns 0 on success, negative on error. */
+ * stream_params.ctx1 enables parallel processing (NULL for single context). */
 int
 whisper_stream_full(struct whisper_full_params params,
                     struct whisper_stream_params stream_params);
