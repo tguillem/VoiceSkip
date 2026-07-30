@@ -108,6 +108,8 @@
     <string name="settings_gpu_device">Using %s</string>
     <string name="settings_gpu_loading">Loading model with GPU…</string>
     <string name="settings_gpu_disabled">CPU-only processing</string>
+    <string name="settings_gpu_requires_vulkan_1_2">GPU acceleration requires Vulkan 1.2 or newer</string>
+    <string name="settings_gpu_failed">GPU acceleration failed</string>
     <string name="settings_threads_title">CPU threads</string>
     <string name="settings_threads_desc_gpu">CPU threads for hybrid GPU/CPU processing</string>
     <string name="settings_threads_desc_cpu">Number of CPU threads for processing</string>

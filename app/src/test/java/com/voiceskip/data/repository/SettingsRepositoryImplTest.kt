@@ -57,9 +57,12 @@ class SettingsRepositoryImplTest {
         assertThat(settings.gpuEnabled).isFalse()
         assertThat(settings.turboModeEnabled).isFalse()
         assertThat(settings.numThreads).isEqualTo(7)
+        assertThat(repository.gpuDisabledReason.value)
+            .isEqualTo(GpuDisabledReason.GPU_FAILED)
 
         val nextProcess = createRepository()
         assertThat(nextProcess.userSettings.first().gpuEnabled).isFalse()
+        assertThat(nextProcess.gpuDisabledReason.value).isNull()
     }
 
     @Test
@@ -108,6 +111,20 @@ class SettingsRepositoryImplTest {
         assertThat(repository.updateGpuEnabled(true).isSuccess).isTrue()
 
         assertThat(repository.userSettings.first().gpuEnabled).isFalse()
+        assertThat(repository.gpuDisabledReason.value)
+            .isEqualTo(GpuDisabledReason.VULKAN_1_2_UNSUPPORTED)
         coVerify(exactly = 0) { userPreferences.setGpuEnabled(true) }
+    }
+
+    @Test
+    fun `persisting unsupported GPU fallback keeps the Vulkan reason`() = runTest {
+        vulkan12Supported = false
+        persistGpuDisable()
+        val repository = createRepository()
+
+        repository.disableGpuAfterFailure()
+
+        assertThat(repository.gpuDisabledReason.value)
+            .isEqualTo(GpuDisabledReason.VULKAN_1_2_UNSUPPORTED)
     }
 }

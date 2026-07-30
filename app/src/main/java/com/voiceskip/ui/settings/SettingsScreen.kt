@@ -2,8 +2,10 @@
 
 package com.voiceskip.ui.settings
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -25,6 +28,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.GpuDisabledReason
 import com.voiceskip.data.repository.ImportError
 import com.voiceskip.data.repository.ModelImportState
 import com.voiceskip.data.repository.ModelInfo
@@ -37,6 +41,45 @@ import kotlin.math.roundToInt
 private fun ModelManager.GpuFallbackReason.toMessage(): String = when (this) {
     ModelManager.GpuFallbackReason.CRASH -> stringResource(R.string.msg_gpu_crash)
     ModelManager.GpuFallbackReason.UNAVAILABLE -> stringResource(R.string.msg_gpu_unavailable)
+}
+
+@Composable
+private fun GpuDisabledReason.toMessage(): String = when (this) {
+    GpuDisabledReason.VULKAN_1_2_UNSUPPORTED ->
+        stringResource(R.string.settings_gpu_requires_vulkan_1_2)
+    GpuDisabledReason.GPU_FAILED ->
+        stringResource(R.string.settings_gpu_failed)
+}
+
+@Composable
+private fun rememberToastClickHandler(message: String?): (() -> Unit)? {
+    val context = LocalContext.current
+    var visible by remember(message) { mutableStateOf(false) }
+    val toast = remember(context, message) {
+        message?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT) }
+    }
+
+    DisposableEffect(toast) {
+        val callback = object : Toast.Callback() {
+            override fun onToastHidden() {
+                visible = false
+            }
+        }
+        toast?.addCallback(callback)
+        onDispose {
+            toast?.removeCallback(callback)
+            toast?.cancel()
+        }
+    }
+
+    return toast?.let {
+        {
+            if (!visible) {
+                visible = true
+                it.show()
+            }
+        }
+    }
 }
 
 @Composable
@@ -63,6 +106,8 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val gpuDisabledMessage = uiState.gpuDisabledReason?.toMessage()
+    val onGpuDisabledClick = rememberToastClickHandler(gpuDisabledMessage)
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -171,7 +216,9 @@ fun SettingsScreen(
             GpuSelector(
                 gpuEnabled = uiState.gpuEnabled,
                 gpuStatus = uiState.gpuStatus,
-                onGpuEnabledChanged = { viewModel.setGpuEnabled(it) }
+                gpuAvailable = uiState.gpuDisabledReason == null,
+                onGpuEnabledChanged = { viewModel.setGpuEnabled(it) },
+                onGpuDisabledClick = onGpuDisabledClick
             )
 
             if (uiState.gpuStatus is GpuStatus.Active && UserPreferences.hasEnoughCoresForTurbo()) {
@@ -379,7 +426,9 @@ private fun CustomModelCard(
 private fun GpuSelector(
     gpuEnabled: Boolean,
     gpuStatus: GpuStatus,
-    onGpuEnabledChanged: (Boolean) -> Unit
+    gpuAvailable: Boolean,
+    onGpuEnabledChanged: (Boolean) -> Unit,
+    onGpuDisabledClick: (() -> Unit)?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -390,6 +439,13 @@ private fun GpuSelector(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (onGpuDisabledClick != null) {
+                        Modifier.clickable(onClick = onGpuDisabledClick)
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(Spacing.large),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
@@ -411,10 +467,20 @@ private fun GpuSelector(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(
-                checked = gpuEnabled,
-                onCheckedChange = onGpuEnabledChanged
-            )
+            Box {
+                Switch(
+                    checked = gpuEnabled,
+                    onCheckedChange = onGpuEnabledChanged,
+                    enabled = gpuAvailable
+                )
+                if (onGpuDisabledClick != null) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable(onClick = onGpuDisabledClick)
+                    )
+                }
+            }
         }
     }
 }

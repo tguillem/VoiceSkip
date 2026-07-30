@@ -7,10 +7,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.voiceskip.data.ErrorHandler
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.GpuDisabledReason
 import com.voiceskip.data.repository.ModelImportState
 import com.voiceskip.data.repository.ModelInfo
 import com.voiceskip.data.repository.ModelRepository
 import com.voiceskip.data.repository.SettingsRepository
+import com.voiceskip.data.repository.UserSettings
 import com.voiceskip.domain.ModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,6 +39,7 @@ data class SettingsUiState(
     val turboModeEnabled: Boolean = false,
     val vadEnabled: Boolean = true,
     val gpuStatus: GpuStatus = GpuStatus.Disabled,
+    val gpuDisabledReason: GpuDisabledReason? = null,
     val numThreads: Int = 4,
     val defaultLanguage: String = UserPreferences.LANGUAGE_AUTO,
     val gpuFallbackReason: ModelManager.GpuFallbackReason? = null,
@@ -52,6 +55,18 @@ class SettingsViewModel @Inject constructor(
     private val modelManager: ModelManager,
     private val modelRepository: ModelRepository
 ) : ViewModel() {
+
+    private data class SettingsWithGpuAvailability(
+        val settings: UserSettings,
+        val gpuDisabledReason: GpuDisabledReason?
+    )
+
+    private val settingsWithGpuAvailability = combine(
+        settingsRepository.userSettings,
+        settingsRepository.gpuDisabledReason
+    ) { settings, gpuDisabledReason ->
+        SettingsWithGpuAvailability(settings, gpuDisabledReason)
+    }
 
     private val gpuStatusFlow = modelManager.modelState.map { state ->
         when (state) {
@@ -72,19 +87,22 @@ class SettingsViewModel @Inject constructor(
     ) { gpu, turbo, model -> Triple(gpu, turbo, model) }
 
     val uiState: StateFlow<SettingsUiState> = combine(
-        settingsRepository.userSettings,
+        settingsWithGpuAvailability,
         gpuStatusFlow,
         fallbackFlow,
         modelRepository.availableModels,
         modelRepository.importState
-    ) { settings, gpuStatus, fallbacks, availableModels, importState ->
+    ) { settingsWithGpu, gpuStatus, fallbacks, availableModels, importState ->
+        val settings = settingsWithGpu.settings
+        val gpuDisabledReason = settingsWithGpu.gpuDisabledReason
         SettingsUiState(
             translateToEnglish = settings.translateToEnglish,
             model = settings.model,
-            gpuEnabled = settings.gpuEnabled,
-            turboModeEnabled = settings.turboModeEnabled,
+            gpuEnabled = settings.gpuEnabled && gpuDisabledReason == null,
+            turboModeEnabled = settings.turboModeEnabled && gpuDisabledReason == null,
             vadEnabled = settings.vadEnabled,
-            gpuStatus = gpuStatus,
+            gpuStatus = if (gpuDisabledReason == null) gpuStatus else GpuStatus.Disabled,
+            gpuDisabledReason = gpuDisabledReason,
             numThreads = settings.numThreads,
             defaultLanguage = settings.defaultLanguage,
             gpuFallbackReason = fallbacks.first,
@@ -98,6 +116,8 @@ class SettingsViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = SettingsUiState(
             model = settingsRepository.getDefaultModel(),
+            gpuEnabled = settingsRepository.gpuDisabledReason.value == null,
+            gpuDisabledReason = settingsRepository.gpuDisabledReason.value,
             numThreads = settingsRepository.getDefaultNumThreads(),
             availableModels = modelRepository.availableModels.value,
             importState = modelRepository.importState.value

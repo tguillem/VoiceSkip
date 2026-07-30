@@ -3,6 +3,7 @@
 package com.voiceskip.fake
 
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.repository.GpuDisabledReason
 import com.voiceskip.data.repository.SettingsRepository
 import com.voiceskip.data.repository.UserSettings
 import kotlinx.coroutines.flow.Flow
@@ -18,7 +19,19 @@ class FakeSettingsRepository : SettingsRepository {
 
     override fun getDefaultNumThreads(): Int = 4
 
+    private val _gpuDisabledReason = MutableStateFlow<GpuDisabledReason?>(null)
+    override val gpuDisabledReason: StateFlow<GpuDisabledReason?> =
+        _gpuDisabledReason.asStateFlow()
+
     var gpuSupported = true
+        set(value) {
+            field = value
+            _gpuDisabledReason.value = if (value) {
+                null
+            } else {
+                GpuDisabledReason.VULKAN_1_2_UNSUPPORTED
+            }
+        }
 
     override fun isGpuSupported(): Boolean = gpuSupported
 
@@ -65,6 +78,9 @@ class FakeSettingsRepository : SettingsRepository {
 
     override suspend fun disableGpuAfterFailure(): Result<Unit> {
         disableGpuAfterFailureCalled = true
+        if (_gpuDisabledReason.value == null) {
+            _gpuDisabledReason.value = GpuDisabledReason.GPU_FAILED
+        }
         _gpuAvailableForCurrentProcess.value = false
         return disableGpuResult.also {
             if (it.isFailure) return@also
@@ -108,7 +124,7 @@ class FakeSettingsRepository : SettingsRepository {
 
     override suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit> {
         updateGpuEnabledCalled = true
-        if (enabled && (!gpuSupported || !_gpuAvailableForCurrentProcess.value)) {
+        if (enabled && _gpuDisabledReason.value != null) {
             return Result.success(Unit)
         }
         return updateResult.also {
@@ -185,6 +201,7 @@ class FakeSettingsRepository : SettingsRepository {
         )
         _gpuAvailableForCurrentProcess.value = true
         gpuSupported = true
+        _gpuDisabledReason.value = null
         updateListenModeEnabledCalled = false
         updateTranslateToEnglishCalled = false
         updateModelCalled = false

@@ -4,6 +4,7 @@ package com.voiceskip.ui.settings
 
 import com.google.common.truth.Truth.assertThat
 import com.voiceskip.TestDispatcherRule
+import com.voiceskip.data.repository.GpuDisabledReason
 import com.voiceskip.domain.ModelManager
 import com.voiceskip.fake.FakeModelRepository
 import com.voiceskip.fake.FakeSettingsRepository
@@ -85,6 +86,35 @@ class SettingsViewModelTest {
         advanceUntilIdle()
 
         assertThat(settingsRepository.getCurrentSettings().model).isEqualTo(before)
+    }
+
+    @Test
+    fun `Vulkan below 1_2 disables GPU with the hardware reason`() = runTest {
+        settingsRepository.gpuSupported = false
+        viewModel = SettingsViewModel(
+            settingsRepository = settingsRepository,
+            modelManager = modelManager,
+            modelRepository = modelRepository
+        )
+
+        assertThat(viewModel.uiState.value.gpuEnabled).isFalse()
+        assertThat(viewModel.uiState.value.gpuStatus).isEqualTo(GpuStatus.Disabled)
+        assertThat(viewModel.uiState.value.gpuDisabledReason)
+            .isEqualTo(GpuDisabledReason.VULKAN_1_2_UNSUPPORTED)
+    }
+
+    @Test
+    fun `GPU failure disables GPU with the failure reason`() = runTest {
+        settingsRepository.disableGpuAfterFailure()
+        viewModel = SettingsViewModel(
+            settingsRepository = settingsRepository,
+            modelManager = modelManager,
+            modelRepository = modelRepository
+        )
+
+        assertThat(viewModel.uiState.value.gpuEnabled).isFalse()
+        assertThat(viewModel.uiState.value.gpuDisabledReason)
+            .isEqualTo(GpuDisabledReason.GPU_FAILED)
     }
 
     @Test

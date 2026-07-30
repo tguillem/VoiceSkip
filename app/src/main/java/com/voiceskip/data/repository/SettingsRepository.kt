@@ -3,6 +3,12 @@
 package com.voiceskip.data.repository
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+
+enum class GpuDisabledReason {
+    VULKAN_1_2_UNSUPPORTED,
+    GPU_FAILED
+}
 
 data class UserSettings(
     val listenModeEnabled: Boolean,
@@ -17,6 +23,7 @@ data class UserSettings(
 
 interface SettingsRepository {
     val userSettings: Flow<UserSettings>
+    val gpuDisabledReason: StateFlow<GpuDisabledReason?>
 
     fun getDefaultModel(): String
     fun getDefaultNumThreads(): Int
