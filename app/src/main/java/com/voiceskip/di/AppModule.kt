@@ -15,6 +15,7 @@ import com.voiceskip.data.repository.SettingsRepository
 import com.voiceskip.data.repository.SettingsRepositoryImpl
 import com.voiceskip.data.source.SavedTranscriptionDataSource
 import com.voiceskip.data.source.SavedTranscriptionDataSourceImpl
+import com.voiceskip.data.source.VulkanSupportDataSource
 import com.voiceskip.data.source.WhisperDataSource
 import com.voiceskip.data.source.WhisperDataSourceImpl
 import com.voiceskip.service.ServiceLauncher
@@ -38,9 +39,10 @@ object AppModule {
     @Provides
     @Singleton
     fun provideSettingsRepository(
-        userPreferences: UserPreferences
+        userPreferences: UserPreferences,
+        vulkanSupportDataSource: VulkanSupportDataSource
     ): SettingsRepository {
-        return SettingsRepositoryImpl(userPreferences)
+        return SettingsRepositoryImpl(userPreferences, vulkanSupportDataSource)
     }
 
     @Provides

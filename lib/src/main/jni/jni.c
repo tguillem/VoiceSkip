@@ -49,7 +49,7 @@ initialize_vulkan_backend(void)
 }
 
 static bool
-initialize_native_backends(JNIEnv *env)
+initialize_cpu_backend(JNIEnv *env)
 {
     enum voiceskip_cpu_backend cpu_backend =
         voiceskip_cpu_backend_init();
@@ -63,11 +63,17 @@ initialize_native_backends(JNIEnv *env)
     LOGI("Selected CPU backend: %s",
          voiceskip_cpu_backend_basename(cpu_backend));
 
+    return true;
+}
+
+static bool
+ensure_vulkan_backend(void)
+{
     if (pthread_once(&g_vulkan_backend_once,
                      initialize_vulkan_backend) != 0)
     {
         LOGE("Failed to initialize Vulkan backend selection");
-        return true;
+        return false;
     }
 
     if (!g_vulkan_backend_available)
@@ -75,7 +81,7 @@ initialize_native_backends(JNIEnv *env)
         LOGI("Vulkan backend module is unavailable");
     }
 
-    return true;
+    return g_vulkan_backend_available;
 }
 #endif
 
@@ -577,8 +583,11 @@ load_model(struct whisper_jni_context *ctx, JNIEnv *env,
     }
 
     char gpu_desc[256];
-    bool use_gpu = args->use_gpu && slot_idx == SLOT_MAIN &&
-                   should_use_gpu(gpu_desc, sizeof gpu_desc);
+    bool use_gpu = args->use_gpu && slot_idx == SLOT_MAIN;
+#ifdef VOICESKIP_CPU_MODULES
+    use_gpu = use_gpu && ensure_vulkan_backend();
+#endif
+    use_gpu = use_gpu && should_use_gpu(gpu_desc, sizeof gpu_desc);
 
     struct whisper_context_params cparams = whisper_context_default_params();
     cparams.flash_attn = cparams.use_gpu = use_gpu;
@@ -991,7 +1000,7 @@ static jlong
 nativeCreate(JNIEnv *env, jobject thiz)
 {
 #ifdef VOICESKIP_CPU_MODULES
-    if (!initialize_native_backends(env))
+    if (!initialize_cpu_backend(env))
     {
         return 0;
     }

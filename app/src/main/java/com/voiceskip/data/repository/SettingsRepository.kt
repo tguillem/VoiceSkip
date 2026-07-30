@@ -20,6 +20,7 @@ interface SettingsRepository {
 
     fun getDefaultModel(): String
     fun getDefaultNumThreads(): Int
+    fun isGpuSupported(): Boolean
 
     /**
      * Masks the GPU for the rest of this process and persists the choice for the next launch.

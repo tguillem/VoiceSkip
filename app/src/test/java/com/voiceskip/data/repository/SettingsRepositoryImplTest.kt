@@ -4,6 +4,7 @@ package com.voiceskip.data.repository
 
 import com.google.common.truth.Truth.assertThat
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.source.VulkanSupportDataSource
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -18,6 +19,10 @@ class SettingsRepositoryImplTest {
 
     private val savedGpuEnabled = MutableStateFlow(true)
     private val savedNumThreads = MutableStateFlow(1)
+    private var vulkan12Supported = true
+    private val vulkanSupportDataSource = object : VulkanSupportDataSource {
+        override fun isVulkan12OrNewer(): Boolean = vulkan12Supported
+    }
 
     private val userPreferences = mockk<UserPreferences>(relaxed = true) {
         every { listenModeEnabled } returns MutableStateFlow(false)
@@ -38,10 +43,13 @@ class SettingsRepositoryImplTest {
         }
     }
 
+    private fun createRepository() =
+        SettingsRepositoryImpl(userPreferences, vulkanSupportDataSource)
+
     @Test
     fun `GPU disable masks settings and persists for the next launch`() = runTest {
         persistGpuDisable()
-        val repository = SettingsRepositoryImpl(userPreferences)
+        val repository = createRepository()
 
         repository.disableGpuAfterFailure()
 
@@ -50,14 +58,14 @@ class SettingsRepositoryImplTest {
         assertThat(settings.turboModeEnabled).isFalse()
         assertThat(settings.numThreads).isEqualTo(7)
 
-        val nextProcess = SettingsRepositoryImpl(userPreferences)
+        val nextProcess = createRepository()
         assertThat(nextProcess.userSettings.first().gpuEnabled).isFalse()
     }
 
     @Test
     fun `GPU stays masked for this process when persisting fails`() = runTest {
         coEvery { userPreferences.setGpuEnabled(false) } throws IOException("datastore")
-        val repository = SettingsRepositoryImpl(userPreferences)
+        val repository = createRepository()
 
         repository.disableGpuAfterFailure()
 
@@ -69,7 +77,7 @@ class SettingsRepositoryImplTest {
     @Test
     fun `re-enabling GPU is ignored once it is disabled for this process`() = runTest {
         persistGpuDisable()
-        val repository = SettingsRepositoryImpl(userPreferences)
+        val repository = createRepository()
         repository.disableGpuAfterFailure()
 
         assertThat(repository.updateGpuEnabled(true).isSuccess).isTrue()
@@ -82,12 +90,24 @@ class SettingsRepositoryImplTest {
     @Test
     fun `thread count stays user-controlled after the GPU is disabled`() = runTest {
         persistGpuDisable()
-        val repository = SettingsRepositoryImpl(userPreferences)
+        val repository = createRepository()
         repository.disableGpuAfterFailure()
 
         coEvery { userPreferences.setNumThreads(3) } coAnswers { savedNumThreads.value = 3 }
         repository.updateNumThreads(3)
 
         assertThat(repository.userSettings.first().numThreads).isEqualTo(3)
+    }
+
+    @Test
+    fun `enabling GPU is ignored below Vulkan 1_2`() = runTest {
+        vulkan12Supported = false
+        savedGpuEnabled.value = false
+        val repository = createRepository()
+
+        assertThat(repository.updateGpuEnabled(true).isSuccess).isTrue()
+
+        assertThat(repository.userSettings.first().gpuEnabled).isFalse()
+        coVerify(exactly = 0) { userPreferences.setGpuEnabled(true) }
     }
 }

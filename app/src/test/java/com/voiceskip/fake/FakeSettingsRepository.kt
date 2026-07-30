@@ -18,6 +18,10 @@ class FakeSettingsRepository : SettingsRepository {
 
     override fun getDefaultNumThreads(): Int = 4
 
+    var gpuSupported = true
+
+    override fun isGpuSupported(): Boolean = gpuSupported
+
     private val _userSettings = MutableStateFlow(
         UserSettings(
             listenModeEnabled = false,
@@ -104,7 +108,7 @@ class FakeSettingsRepository : SettingsRepository {
 
     override suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit> {
         updateGpuEnabledCalled = true
-        if (enabled && !_gpuAvailableForCurrentProcess.value) {
+        if (enabled && (!gpuSupported || !_gpuAvailableForCurrentProcess.value)) {
             return Result.success(Unit)
         }
         return updateResult.also {
@@ -180,6 +184,7 @@ class FakeSettingsRepository : SettingsRepository {
             defaultLanguage = UserPreferences.LANGUAGE_AUTO
         )
         _gpuAvailableForCurrentProcess.value = true
+        gpuSupported = true
         updateListenModeEnabledCalled = false
         updateTranslateToEnglishCalled = false
         updateModelCalled = false

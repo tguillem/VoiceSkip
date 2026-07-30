@@ -3,6 +3,7 @@
 package com.voiceskip.data.repository
 
 import com.voiceskip.data.UserPreferences
+import com.voiceskip.data.source.VulkanSupportDataSource
 import com.voiceskip.util.VoiceSkipLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -10,14 +11,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 
 class SettingsRepositoryImpl(
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    vulkanSupportDataSource: VulkanSupportDataSource
 ) : SettingsRepository {
 
     private val gpuAvailableForCurrentProcess = MutableStateFlow(true)
+    private val gpuSupported = vulkanSupportDataSource.isVulkan12OrNewer()
 
     override fun getDefaultModel(): String = userPreferences.getDefaultModelForContext()
 
     override fun getDefaultNumThreads(): Int = userPreferences.getDefaultNumThreadsForContext(gpuEnabled = true)
+
+    override fun isGpuSupported(): Boolean = gpuSupported
 
     override val userSettings: Flow<UserSettings> = combine(
         combine(
@@ -83,6 +88,9 @@ class SettingsRepositoryImpl(
     }
 
     override suspend fun updateGpuEnabled(enabled: Boolean): Result<Unit> {
+        if (enabled && !gpuSupported) {
+            return Result.success(Unit)
+        }
         // Re-arming here would both hand a bad GPU context back to whisper and undo the
         // persisted disable, so the toggle stays inert until the process restarts.
         if (enabled && !gpuAvailableForCurrentProcess.value) {

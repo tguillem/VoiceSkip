@@ -150,6 +150,13 @@ class ModelManager @Inject constructor(
                 _gpuFallbackReason.value = GpuFallbackReason.CRASH
             }
 
+            if (gpuEnabled && !settingsRepository.isGpuSupported()) {
+                VoiceSkipLogger.w("Vulkan 1.2 unavailable, falling back to CPU")
+                settingsRepository.disableGpuAfterFailure()
+                gpuEnabled = false
+                _gpuFallbackReason.value = GpuFallbackReason.UNAVAILABLE
+            }
+
             // The flag survives a kill, so it is still set if loading the custom model hung or
             // took the process down. Retrying would hang again, so drop the selection.
             if (modelRepository.isImportedModelLoadInProgress()) {

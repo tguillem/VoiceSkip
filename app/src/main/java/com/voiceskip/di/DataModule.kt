@@ -14,6 +14,8 @@ import com.voiceskip.data.source.DataStoreImportedModelStore
 import com.voiceskip.data.source.ImportedModelDocumentDataSource
 import com.voiceskip.data.source.ImportedModelDocumentDataSourceImpl
 import com.voiceskip.data.source.ImportedModelStore
+import com.voiceskip.data.source.VulkanSupportDataSource
+import com.voiceskip.data.source.VulkanSupportDataSourceImpl
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -46,6 +48,12 @@ abstract class DataModule {
     abstract fun bindImportedModelStore(
         impl: DataStoreImportedModelStore
     ): ImportedModelStore
+
+    @Binds
+    @Singleton
+    abstract fun bindVulkanSupportDataSource(
+        impl: VulkanSupportDataSourceImpl
+    ): VulkanSupportDataSource
 
     @Binds
     @Singleton

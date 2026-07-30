@@ -680,6 +680,24 @@ class ModelManagerTest {
     }
 
     @Test
+    fun `Vulkan below 1_2 falls back before GPU load begins`() = runTest {
+        fakeSettingsRepository.gpuSupported = false
+        fakeRepository.loadModelGpuResult = null
+
+        modelManager.loadModel(mockAssets)
+        advanceUntilIdle()
+
+        assertThat(fakeRepository.lastLoadModelUseGpu).isFalse()
+        assertThat(fakeSettingsRepository.disableGpuAfterFailureCalled).isTrue()
+        assertThat(fakeSettingsRepository.getPersistedSettings().gpuEnabled).isFalse()
+        assertThat(fakeSettingsRepository.getPersistedSettings().numThreads)
+            .isEqualTo(UserPreferences.getDefaultNumThreads(gpuEnabled = false))
+        assertThat(modelManager.gpuFallbackReason.value)
+            .isEqualTo(ModelManager.GpuFallbackReason.UNAVAILABLE)
+        verify(exactly = 0) { mockUserPreferences.setGpuInProgress(true) }
+    }
+
+    @Test
     fun `no fallback when GPU works`() = runTest {
         fakeRepository.loadModelGpuResult = "Test GPU"
 
