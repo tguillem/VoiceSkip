@@ -1,3 +1,9 @@
+1.0.6
+-----
+- Require Vulkan 1.2 for GPU acceleration as 1.1 is too unstable
+- Improve CPU compatibility across ARM64 devices
+- Fix a crash when selecting text in timestamped transcripts
+
 1.0.5
 -----
 - Fix crashes on Adreno GPUs by falling back to CPU before inference
