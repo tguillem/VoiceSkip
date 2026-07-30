@@ -1,777 +1,17 @@
-From 31b99270009a8c11de85b950e2390c05e02ab5c6 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Fri, 2 Jan 2026 17:33:08 +0100
-Subject: [PATCH 01/24] vulkan: use VkPhysicalDeviceSubgroupProperties
-
-Instead of VkPhysicalDeviceVulkan11Properties, that was added in Vulkan 1.2.
-
-"The members of VkPhysicalDeviceVulkan11Properties have the same values
-as the corresponding members of ... VkPhysicalDeviceSubgroupProperties ..."
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 24 ++++++++++++------------
- 1 file changed, 12 insertions(+), 12 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index a483d22c..ca90c2fb 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -5975,31 +5975,31 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         }
-         device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
- 
--        device->subgroup_basic = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                 (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
--        device->subgroup_arithmetic = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                      (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eArithmetic);
-+        device->subgroup_basic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                 (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
-+        device->subgroup_arithmetic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                      (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eArithmetic);
- #ifdef __APPLE__
-         // Workaround for subgroup arithmetic failing on MoltenVK with AMD GPUs (issue 15846)
-         if (device->vendor_id == VK_VENDOR_ID_AMD) {
-             device->subgroup_arithmetic = false;
-         }
- #endif
--        device->subgroup_shuffle = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                   (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
-+        device->subgroup_shuffle = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                   (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eShuffle);
- #ifdef __APPLE__
-         if (device->vendor_id == VK_VENDOR_ID_AMD) {
-             device->subgroup_shuffle = false;
-         }
- #endif
--        device->subgroup_clustered = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                     (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
-+        device->subgroup_clustered = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                     (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eClustered);
- 
--        device->subgroup_ballot = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                  (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eBallot);
-+        device->subgroup_ballot = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                  (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBallot);
- 
--        device->subgroup_vote = (vk11_props.subgroupSupportedStages & vk::ShaderStageFlagBits::eCompute) &&
--                                (vk11_props.subgroupSupportedOperations & vk::SubgroupFeatureFlagBits::eVote);
-+        device->subgroup_vote = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-+                                (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eVote);
- 
-         // Submit at least every 100 nodes, in case there are workloads without as much matmul.
-         device->max_nodes_per_submit = 100;
--- 
-2.47.3
-
-
-From 37247652ac4b1b3245fbc7e64c4d81549fae7dbc Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:02:38 +0100
-Subject: [PATCH 02/24] vulkan: use VkPhysicalDeviceFloatControlsProperties on
- Vulkan 1.1
-
-"The members of VkPhysicalDeviceVulkan12Properties must have the same
-values as the corresponding members of ...
-VkPhysicalDeviceFloatControlsProperties ..."
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 30 ++++++++++++++++++++++++----
- 1 file changed, 26 insertions(+), 4 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index ca90c2fb..09329166 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -5767,6 +5767,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device->physical_device = physical_devices[dev_num];
-         const std::vector<vk::ExtensionProperties> ext_props = device->physical_device.enumerateDeviceExtensionProperties();
- 
-+        vk::PhysicalDeviceProperties device_props = device->physical_device.getProperties();
-+        const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
-+
-         device->architecture = get_device_architecture(device->physical_device);
- 
-         const char* GGML_VK_PREFER_HOST_MEMORY = getenv("GGML_VK_PREFER_HOST_MEMORY");
-@@ -5795,6 +5798,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device->shader_64b_indexing = false;
-         bool bfloat16_support = false;
-         bool dot2_f16_support = false;
-+        bool shader_float_controls_khr = false;
- 
-         for (const auto& properties : ext_props) {
-             if (strcmp("VK_KHR_maintenance4", properties.extensionName) == 0) {
-@@ -5851,6 +5855,8 @@ static vk_device ggml_vk_get_device(size_t idx) {
-             } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
-                 device->shader_64b_indexing = true;
- #endif
-+            } else if (strcmp("VK_KHR_shader_float_controls", properties.extensionName) == 0) {
-+                shader_float_controls_khr = true;
-             }
-         }
- 
-@@ -5863,6 +5869,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         vk::PhysicalDeviceShaderCoreProperties2AMD amd_shader_core_properties2_props;
-         vk::PhysicalDeviceVulkan11Properties vk11_props;
-         vk::PhysicalDeviceVulkan12Properties vk12_props;
-+        vk::PhysicalDeviceFloatControlsProperties float_controls_props;
-         vk::PhysicalDeviceSubgroupSizeControlPropertiesEXT subgroup_size_control_props;
-         vk::PhysicalDeviceShaderIntegerDotProductPropertiesKHR shader_integer_dot_product_props;
-         vk::PhysicalDeviceExternalMemoryHostPropertiesEXT external_memory_host_props;
-@@ -5870,10 +5877,21 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         props2.pNext = &props3;
-         props3.pNext = &subgroup_props;
-         subgroup_props.pNext = &driver_props;
--        driver_props.pNext = &vk11_props;
--        vk11_props.pNext = &vk12_props;
- 
--        VkBaseOutStructure * last_struct = (VkBaseOutStructure *)&vk12_props;
-+        VkBaseOutStructure * last_struct;
-+
-+        if (device_is_vulkan_12) {
-+            driver_props.pNext = &vk11_props;
-+            vk11_props.pNext = &vk12_props;
-+            last_struct = (VkBaseOutStructure *)&vk12_props;
-+        } else {
-+            if (shader_float_controls_khr) {
-+                driver_props.pNext = &float_controls_props;
-+                last_struct = (VkBaseOutStructure *)&float_controls_props;
-+            } else {
-+                last_struct = (VkBaseOutStructure *)&driver_props;
-+            }
-+        }
- 
-         if (maintenance4_support) {
-             last_struct->pNext = (VkBaseOutStructure *)&props4;
-@@ -5973,7 +5991,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         } else {
-             device->shader_core_count = 0;
-         }
--        device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
-+        if (device_is_vulkan_12) {
-+            device->float_controls_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
-+        } else {
-+            device->float_controls_rte_fp16 = shader_float_controls_khr ? float_controls_props.shaderRoundingModeRTEFloat16 : false;
-+        }
- 
-         device->subgroup_basic = (subgroup_props.supportedStages & vk::ShaderStageFlagBits::eCompute) &&
-                                  (subgroup_props.supportedOperations & vk::SubgroupFeatureFlagBits::eBasic);
--- 
-2.47.3
-
-
-From 4244adf347a31ca5a6fb5ec0eb5a40d0577a9be4 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:25:42 +0100
-Subject: [PATCH 03/24] vulkan: use individual features structures on Vulkan
- 1.1
-
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 167 ++++++++++++++++++++++++---
- 1 file changed, 150 insertions(+), 17 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 09329166..539ddde1 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -5786,6 +5786,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
- 
-         bool fp16_storage = false;
-         bool fp16_compute = false;
-+        bool int8_storage_khr = false;
-         bool maintenance4_support = false;
-         bool sm_builtins = false;
-         bool amd_shader_core_properties2 = false;
-@@ -5798,13 +5799,19 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device->shader_64b_indexing = false;
-         bool bfloat16_support = false;
-         bool dot2_f16_support = false;
-+        bool buffer_device_address_khr = false;
-+        bool timeline_semaphore_khr = false;
-+        bool vulkan_memory_model_khr = false;
-         bool shader_float_controls_khr = false;
-+        bool descriptor_indexing_ext = false;
- 
-         for (const auto& properties : ext_props) {
-             if (strcmp("VK_KHR_maintenance4", properties.extensionName) == 0) {
-                 maintenance4_support = true;
-             } else if (strcmp("VK_KHR_16bit_storage", properties.extensionName) == 0) {
-                 fp16_storage = true;
-+            } else if (strcmp("VK_KHR_8bit_storage", properties.extensionName) == 0) {
-+                int8_storage_khr = true;
-             } else if (strcmp("VK_KHR_shader_float16_int8", properties.extensionName) == 0) {
-                 fp16_compute = true;
-             } else if (strcmp("VK_NV_shader_sm_builtins", properties.extensionName) == 0) {
-@@ -5855,11 +5862,27 @@ static vk_device ggml_vk_get_device(size_t idx) {
-             } else if (strcmp("VK_EXT_shader_64bit_indexing", properties.extensionName) == 0) {
-                 device->shader_64b_indexing = true;
- #endif
-+            } else if (strcmp("VK_KHR_buffer_device_address", properties.extensionName) == 0) {
-+                buffer_device_address_khr = true;
-+            } else if (strcmp("VK_KHR_timeline_semaphore", properties.extensionName) == 0) {
-+                timeline_semaphore_khr = true;
-+            } else if (strcmp("VK_KHR_vulkan_memory_model", properties.extensionName) == 0) {
-+                vulkan_memory_model_khr = true;
-             } else if (strcmp("VK_KHR_shader_float_controls", properties.extensionName) == 0) {
-                 shader_float_controls_khr = true;
-+            } else if (strcmp("VK_EXT_descriptor_indexing", properties.extensionName) == 0) {
-+                descriptor_indexing_ext = true;
-             }
-         }
- 
-+        if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
-+            throw std::runtime_error("Unsupported device: timeline semaphores required");
-+        }
-+
-+        if (!device_is_vulkan_12 && !int8_storage_khr) {
-+            throw std::runtime_error("Unsupported device: 8-bit storage required");
-+        }
-+
-         vk::PhysicalDeviceProperties2 props2;
-         vk::PhysicalDeviceMaintenance3Properties props3;
-         vk::PhysicalDeviceMaintenance4Properties props4;
-@@ -6075,17 +6098,78 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device_features2.pNext = nullptr;
-         device_features2.features = (VkPhysicalDeviceFeatures)device_features;
- 
--        VkPhysicalDeviceVulkan11Features vk11_features;
--        vk11_features.pNext = nullptr;
--        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
--        device_features2.pNext = &vk11_features;
-+        VkPhysicalDeviceVulkan11Features vk11_features {};
-+        VkPhysicalDeviceVulkan12Features vk12_features {};
-+
-+        // Used when Vulkan 1.2 API not available
-+        VkPhysicalDevice16BitStorageFeatures storage_16bit_features {};
-+        VkPhysicalDevice8BitStorageFeatures storage_8bit_features {};
-+        VkPhysicalDeviceShaderFloat16Int8Features float16_int8_features {};
-+        VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features {};
-+        VkPhysicalDeviceDescriptorIndexingFeaturesEXT descriptor_indexing_features {};
-+        VkPhysicalDeviceVulkanMemoryModelFeatures vulkan_memory_model_features {};
-+        VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features {};
-+
-+        if (device_is_vulkan_12) {
-+            // Use vk11 and vk12 features structures
-+            vk11_features.pNext = nullptr;
-+            vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-+            device_features2.pNext = &vk11_features;
-+
-+            vk12_features.pNext = nullptr;
-+            vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-+            vk11_features.pNext = &vk12_features;
-+
-+            last_struct = (VkBaseOutStructure *)&vk12_features;
-+        } else {
-+            // Use individual features structures
-+            storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
-+            storage_16bit_features.pNext = nullptr;
-+            device_features2.pNext = &storage_16bit_features;
-+            last_struct = (VkBaseOutStructure *)&storage_16bit_features;
-+
-+            if (int8_storage_khr) {
-+                storage_8bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES;
-+                storage_8bit_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&storage_8bit_features;
-+                last_struct = (VkBaseOutStructure *)&storage_8bit_features;
-+            }
-+
-+            if (fp16_compute) {
-+                float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
-+                float16_int8_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&float16_int8_features;
-+                last_struct = (VkBaseOutStructure *)&float16_int8_features;
-+            }
-+
-+            if (buffer_device_address_khr) {
-+                buffer_device_address_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_KHR;
-+                buffer_device_address_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&buffer_device_address_features;
-+                last_struct = (VkBaseOutStructure *)&buffer_device_address_features;
-+            }
-+
-+            if (descriptor_indexing_ext) {
-+                descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES_EXT;
-+                descriptor_indexing_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&descriptor_indexing_features;
-+                last_struct = (VkBaseOutStructure *)&descriptor_indexing_features;
-+            }
- 
--        VkPhysicalDeviceVulkan12Features vk12_features;
--        vk12_features.pNext = nullptr;
--        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
--        vk11_features.pNext = &vk12_features;
-+            if (vulkan_memory_model_khr) {
-+                vulkan_memory_model_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_MEMORY_MODEL_FEATURES;
-+                vulkan_memory_model_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&vulkan_memory_model_features;
-+                last_struct = (VkBaseOutStructure *)&vulkan_memory_model_features;
-+            }
- 
--        last_struct = (VkBaseOutStructure *)&vk12_features;
-+            if (timeline_semaphore_khr) {
-+                timeline_semaphore_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
-+                timeline_semaphore_features.pNext = nullptr;
-+                last_struct->pNext = (VkBaseOutStructure *)&timeline_semaphore_features;
-+                last_struct = (VkBaseOutStructure *)&timeline_semaphore_features;
-+            }
-+        }
- 
-         VkPhysicalDevicePipelineRobustnessFeaturesEXT pl_robustness_features;
-         pl_robustness_features.pNext = nullptr;
-@@ -6209,9 +6293,29 @@ static vk_device ggml_vk_get_device(size_t idx) {
- 
-         vkGetPhysicalDeviceFeatures2(device->physical_device, &device_features2);
- 
-+        bool shader_float16_supported;
-+        bool buffer_device_address_supported;
-+        bool vulkan_memory_model_supported;
-+        bool storage_buffer_16bit_access_supported;
-+        bool shader_rounding_mode_rte_fp16;
-+
-+        if (device_is_vulkan_12) {
-+            shader_float16_supported = vk12_features.shaderFloat16;
-+            buffer_device_address_supported = vk12_features.bufferDeviceAddress;
-+            vulkan_memory_model_supported = vk12_features.vulkanMemoryModel;
-+            storage_buffer_16bit_access_supported = vk11_features.storageBuffer16BitAccess;
-+            shader_rounding_mode_rte_fp16 = vk12_props.shaderRoundingModeRTEFloat16;
-+        } else {
-+            shader_float16_supported = float16_int8_features.shaderFloat16;
-+            buffer_device_address_supported = buffer_device_address_features.bufferDeviceAddress && buffer_device_address_khr;
-+            vulkan_memory_model_supported = vulkan_memory_model_features.vulkanMemoryModel && vulkan_memory_model_khr;
-+            storage_buffer_16bit_access_supported = storage_16bit_features.storageBuffer16BitAccess;
-+            shader_rounding_mode_rte_fp16 = shader_float_controls_khr ? float_controls_props.shaderRoundingModeRTEFloat16 : false;
-+        }
-+
-         device->pipeline_executable_properties_support = pipeline_executable_properties_support;
- 
--        device->fp16 = device->fp16 && vk12_features.shaderFloat16;
-+        device->fp16 = device->fp16 && shader_float16_supported;
- 
- #if defined(VK_KHR_shader_bfloat16)
-         device->bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
-@@ -6223,13 +6327,13 @@ static vk_device ggml_vk_get_device(size_t idx) {
- 
-         device->pipeline_robustness = pl_robustness_features.pipelineRobustness;
- 
--        device->multi_add = vk12_props.shaderRoundingModeRTEFloat16 &&
-+        device->multi_add = shader_rounding_mode_rte_fp16 &&
-                             device->properties.limits.maxPushConstantsSize >= sizeof(vk_op_multi_add_push_constants) &&
-                             getenv("GGML_VK_DISABLE_MULTI_ADD") == nullptr;
- 
-         device->shader_int64 = device_features2.features.shaderInt64;
--        device->buffer_device_address = vk12_features.bufferDeviceAddress;
--        device->vulkan_memory_model = vk12_features.vulkanMemoryModel;
-+        device->buffer_device_address = buffer_device_address_supported;
-+        device->vulkan_memory_model = vulkan_memory_model_supported;
- 
-         if (device->subgroup_size_control) {
-             device->subgroup_min_size = subgroup_size_control_props.minSubgroupSize;
-@@ -6257,7 +6361,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
-                 coopmat2_features.cooperativeMatrixPerElementOperations &&
-                 coopmat2_features.cooperativeMatrixTensorAddressing &&
-                 coopmat2_features.cooperativeMatrixBlockLoads &&
--                vk12_features.bufferDeviceAddress) {
-+                buffer_device_address_supported) {
- 
-                 std::vector<VkCooperativeMatrixFlexibleDimensionsPropertiesNV> flexible_dimensions;
-                 uint32_t count = 0;
-@@ -6351,12 +6455,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
- #endif
-         }
- 
--        if (!vk11_features.storageBuffer16BitAccess) {
-+        if (!storage_buffer_16bit_access_supported) {
-             std::cerr << "ggml_vulkan: device " << GGML_VK_NAME << idx << " does not support 16-bit storage." << std::endl;
-             throw std::runtime_error("Unsupported device");
-         }
- 
--        device_extensions.push_back("VK_KHR_16bit_storage");
-+        if (fp16_storage) {
-+            device_extensions.push_back("VK_KHR_16bit_storage");
-+        }
-+
-+        if (!device_is_vulkan_12 && timeline_semaphore_khr) {
-+            device_extensions.push_back("VK_KHR_timeline_semaphore");
-+        }
-+
-+        if (!device_is_vulkan_12 && int8_storage_khr) {
-+            device_extensions.push_back("VK_KHR_8bit_storage");
-+        }
- 
- #ifdef GGML_VULKAN_VALIDATE
-         device_extensions.push_back("VK_KHR_shader_non_semantic_info");
-@@ -6366,6 +6480,22 @@ static vk_device ggml_vk_get_device(size_t idx) {
-             device_extensions.push_back("VK_KHR_shader_float16_int8");
-         }
- 
-+        if (!device_is_vulkan_12 && device->buffer_device_address) {
-+            device_extensions.push_back("VK_KHR_buffer_device_address");
-+        }
-+
-+        if (!device_is_vulkan_12 && device->vulkan_memory_model) {
-+            device_extensions.push_back("VK_KHR_vulkan_memory_model");
-+        }
-+
-+        if (!device_is_vulkan_12 && shader_float_controls_khr) {
-+            device_extensions.push_back("VK_KHR_shader_float_controls");
-+        }
-+
-+        if (!device_is_vulkan_12 && descriptor_indexing_ext) {
-+            device_extensions.push_back("VK_EXT_descriptor_indexing");
-+        }
-+
- #if defined(VK_KHR_cooperative_matrix)
-         if (device->coopmat_support) {
-             // Query supported shapes
-@@ -6568,7 +6698,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info(
-             {},
-             dsl_binding);
--        descriptor_set_layout_create_info.setPNext(&dslbfci);
-+        if (device_is_vulkan_12 || descriptor_indexing_ext) {
-+            descriptor_set_layout_create_info.setPNext(&dslbfci);
-+        }
-+
-         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
- 
-         ggml_vk_load_shaders(device);
--- 
-2.47.3
-
-
-From 908e57837fbf0976514e9263a26260248dca47f0 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:29:31 +0100
-Subject: [PATCH 04/24] vulkan: use pfn_vkGetBufferDeviceAddress on Vulkan 1.1
-
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 20 ++++++++++++++++++--
- 1 file changed, 18 insertions(+), 2 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 539ddde1..5fc8b30c 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -704,6 +704,8 @@ struct vk_device_struct {
-     bool multi_add;
-     bool shader_int64;
-     bool buffer_device_address;
-+    // Not needed for Vulkan 1.2+ where it's a core function
-+    PFN_vkGetBufferDeviceAddressKHR pfn_vkGetBufferDeviceAddress = nullptr;
-     bool vulkan_memory_model;
- 
-     bool add_rms_fusion;
-@@ -3229,8 +3231,13 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, size_t size, const std
-     buf->size = size;
- 
-     if (device->buffer_device_address) {
--        const vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
--        buf->bda_addr = device->device.getBufferAddress(addressInfo);
-+        if (device->pfn_vkGetBufferDeviceAddress){
-+            vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
-+            buf->bda_addr = device->pfn_vkGetBufferDeviceAddress(device->device, &static_cast<VkBufferDeviceAddressInfo &>(addressInfo));
-+        } else {
-+            const vk::BufferDeviceAddressInfo addressInfo(buf->buffer);
-+            buf->bda_addr = device->device.getBufferAddress(addressInfo);
-+        }
-     }
- 
-     device->memory_logger->log_allocation(buf, size);
-@@ -6617,6 +6624,15 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         device_create_info.setPNext(&device_features2);
-         device->device = device->physical_device.createDevice(device_create_info);
- 
-+        if (!device_is_vulkan_12 && device->buffer_device_address) {
-+            device->pfn_vkGetBufferDeviceAddress = (PFN_vkGetBufferDeviceAddressKHR)
-+                vkGetDeviceProcAddr(device->device, "vkGetBufferDeviceAddressKHR");
-+
-+            if (!device->pfn_vkGetBufferDeviceAddress) {
-+                throw std::runtime_error("Failed to load vkGetBufferDeviceAddressKHR");
-+            }
-+        }
-+
-         // Queues
-         ggml_vk_create_queue(device, device->compute_queue, compute_queue_family_index, 0, { vk::PipelineStageFlagBits::eComputeShader | vk::PipelineStageFlagBits::eTransfer }, false);
- 
--- 
-2.47.3
-
-
-From 4fa38b70c326d4fa454d8d9b6dc59dc1e9abb107 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:05:09 +0100
-Subject: [PATCH 05/24] vulkan: handle Vulkan 1.1 in ggml_vk_print_gpu_info()
-
-Use VkPhysicalDeviceShaderFloat16Int8Features on Vulkan 1.1
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 34 +++++++++++++++++++---------
- 1 file changed, 23 insertions(+), 11 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 5fc8b30c..855957ae 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -6834,6 +6834,9 @@ static void ggml_vk_print_gpu_info(size_t idx) {
- 
-     const vk_device_architecture device_architecture = get_device_architecture(physical_device);
- 
-+    vk::PhysicalDeviceProperties device_props = physical_device.getProperties();
-+    const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
-+
-     const char* GGML_VK_DISABLE_F16 = getenv("GGML_VK_DISABLE_F16");
-     bool force_disable_f16 = GGML_VK_DISABLE_F16 != nullptr;
- 
-@@ -6862,18 +6865,26 @@ static void ggml_vk_print_gpu_info(size_t idx) {
-     device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-     device_features2.pNext = nullptr;
- 
--    VkPhysicalDeviceVulkan11Features vk11_features;
--    vk11_features.pNext = nullptr;
--    vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
--    device_features2.pNext = &vk11_features;
-+    VkPhysicalDeviceVulkan11Features vk11_features {};
-+    VkPhysicalDeviceVulkan12Features vk12_features {};
-+    VkPhysicalDeviceShaderFloat16Int8Features float16_int8_features {};
- 
--    VkPhysicalDeviceVulkan12Features vk12_features;
--    vk12_features.pNext = nullptr;
--    vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
--    vk11_features.pNext = &vk12_features;
-+    if (device_is_vulkan_12) {
-+        vk11_features.pNext = nullptr;
-+        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-+        device_features2.pNext = &vk11_features;
- 
--    // Pointer to the last chain element
--    last_struct = (VkBaseOutStructure *)&vk12_features;
-+        vk12_features.pNext = nullptr;
-+        vk12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-+        vk11_features.pNext = &vk12_features;
-+
-+        last_struct = (VkBaseOutStructure *)&vk12_features;
-+    } else {
-+        float16_int8_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_FLOAT16_INT8_FEATURES;
-+        float16_int8_features.pNext = nullptr;
-+        device_features2.pNext = &float16_int8_features;
-+        last_struct = (VkBaseOutStructure *)&float16_int8_features;
-+    }
- 
- #if defined(GGML_VULKAN_COOPMAT_GLSLC_SUPPORT)
-     VkPhysicalDeviceCooperativeMatrixFeaturesKHR coopmat_features;
-@@ -6928,7 +6939,8 @@ static void ggml_vk_print_gpu_info(size_t idx) {
- 
-     vkGetPhysicalDeviceFeatures2(physical_device, &device_features2);
- 
--    fp16 = fp16 && vk12_features.shaderFloat16;
-+    bool shader_float16_supported = device_is_vulkan_12 ? vk12_features.shaderFloat16 : float16_int8_features.shaderFloat16;
-+    fp16 = fp16 && shader_float16_supported;
- 
- #if defined(VK_KHR_shader_bfloat16)
-     bool bf16 = bfloat16_support && bfloat16_features.shaderBFloat16Type;
--- 
-2.47.3
-
-
-From d4af78f3ed3d4ffe11f62036be5a92b125173670 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:21:06 +0100
-Subject: [PATCH 06/24] vulkan: handle Vulkan 1.1 in
- ggml_vk_device_is_supported()
-
-Check required exstensions when using Vulkan 1.1 and use
-VkPhysicalDevice16BitStorageFeatures
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 40 ++++++++++++++++++++++++----
- 1 file changed, 35 insertions(+), 5 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 855957ae..daf81ef0 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -18194,17 +18194,47 @@ static bool ggml_vk_instance_debug_utils_ext_available(
- }
- 
- static bool ggml_vk_device_is_supported(const vk::PhysicalDevice & vkdev) {
-+    vk::PhysicalDeviceProperties device_props = vkdev.getProperties();
-+    const bool device_is_vulkan_12 = device_props.apiVersion >= VK_API_VERSION_1_2;
-+
-+    if (!device_is_vulkan_12) {
-+        // Check for required extensions on Vulkan 1.1
-+        std::vector<vk::ExtensionProperties> ext_props = vkdev.enumerateDeviceExtensionProperties();
-+        bool timeline_semaphore_khr = false;
-+        bool int8_storage_khr = false;
-+
-+        for (const auto& properties : ext_props) {
-+            if (strcmp("VK_KHR_timeline_semaphore", properties.extensionName) == 0) {
-+                timeline_semaphore_khr = true;
-+            } else if (strcmp("VK_KHR_8bit_storage", properties.extensionName) == 0) {
-+                int8_storage_khr = true;
-+            }
-+        }
-+
-+        if (!timeline_semaphore_khr || !int8_storage_khr) {
-+            return false;
-+        }
-+    }
-+
-     VkPhysicalDeviceFeatures2 device_features2;
-     device_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
- 
--    VkPhysicalDeviceVulkan11Features vk11_features;
--    vk11_features.pNext = nullptr;
--    vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
--    device_features2.pNext = &vk11_features;
-+    VkPhysicalDeviceVulkan11Features vk11_features {};
-+    VkPhysicalDevice16BitStorageFeatures storage_16bit_features {};
-+
-+    if (device_is_vulkan_12) {
-+        vk11_features.pNext = nullptr;
-+        vk11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-+        device_features2.pNext = &vk11_features;
-+    } else {
-+        storage_16bit_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES;
-+        storage_16bit_features.pNext = nullptr;
-+        device_features2.pNext = &storage_16bit_features;
-+    }
- 
-     vkGetPhysicalDeviceFeatures2(vkdev, &device_features2);
- 
--    return vk11_features.storageBuffer16BitAccess;
-+    return device_is_vulkan_12 ? vk11_features.storageBuffer16BitAccess : storage_16bit_features.storageBuffer16BitAccess;
- }
- 
- static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDeviceProperties& props, const vk::PhysicalDeviceDriverProperties& driver_props, vk_device_architecture arch) {
--- 
-2.47.3
-
-
-From 0b51095296d601aa9b35a43bb3678475f2a813d6 Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Wed, 21 Jan 2026 06:29:50 +0100
-Subject: [PATCH 07/24] vulkan: lower API requirement to 1.1
-
----
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 6 +++---
- 1 file changed, 3 insertions(+), 3 deletions(-)
-
-diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index daf81ef0..633e5ea1 100644
---- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-+++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -7018,9 +7018,9 @@ static void ggml_vk_instance_init() {
- 
-     uint32_t api_version = vk::enumerateInstanceVersion();
- 
--    if (api_version < VK_API_VERSION_1_2) {
--        std::cerr << "ggml_vulkan: Error: Vulkan 1.2 required." << std::endl;
--        throw vk::SystemError(vk::Result::eErrorFeatureNotPresent, "Vulkan 1.2 required");
-+    if (api_version < VK_API_VERSION_1_1) {
-+        std::cerr << "ggml_vulkan: Error: Vulkan 1.1 required." << std::endl;
-+        throw vk::SystemError(vk::Result::eErrorFeatureNotPresent, "Vulkan 1.1 required");
-     }
- 
-     vk::ApplicationInfo app_info{ "ggml-vulkan", 1, nullptr, 0, api_version };
--- 
-2.47.3
-
-
-From 60277cb612470333decde509f90d1ad5bf0455bc Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Mon, 19 Jan 2026 13:25:52 +0100
-Subject: [PATCH 08/24] vulkan: add 1.1 shader compatibility mode
-
-if GGML_VULKAN_MIN_1_1 is defined:
-
- - rte shaders will be built with 1.1 API and "SPV_KHR_float_controls"
-   spirv extension.
- - all no _cm2 shaders will be built with 1.1 API
-
-No changes if GGML_VULKAN_MIN_1_1 is not defined (default).
----
- ggml/CMakeLists.txt                                    |  1 +
- ggml/src/ggml-vulkan/CMakeLists.txt                    |  5 +++++
- ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt     |  3 +++
- .../ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp  | 10 +++++++++-
- 4 files changed, 18 insertions(+), 1 deletion(-)
-
-diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
-index 0470e3e2..030349f3 100644
---- a/ggml/CMakeLists.txt
-+++ b/ggml/CMakeLists.txt
-@@ -228,6 +228,7 @@ option(GGML_VULKAN_MEMORY_DEBUG             "ggml: enable Vulkan memory debug ou
- option(GGML_VULKAN_SHADER_DEBUG_INFO        "ggml: enable Vulkan shader debug info"           OFF)
- option(GGML_VULKAN_VALIDATE                 "ggml: enable Vulkan validation"                  OFF)
- option(GGML_VULKAN_RUN_TESTS                "ggml: run Vulkan tests"                          OFF)
-+option(GGML_VULKAN_MIN_1_1                  "ggml: target Vulkan 1.1 minimum (SPIR-V 1.3)"    OFF)
- option(GGML_WEBGPU                          "ggml: use WebGPU"                                OFF)
- option(GGML_WEBGPU_DEBUG                    "ggml: enable WebGPU debug output"                OFF)
- option(GGML_WEBGPU_CPU_PROFILE              "ggml: enable WebGPU profiling (CPU)"             OFF)
-diff --git a/ggml/src/ggml-vulkan/CMakeLists.txt b/ggml/src/ggml-vulkan/CMakeLists.txt
-index 5aeb6e97..70d64c37 100644
---- a/ggml/src/ggml-vulkan/CMakeLists.txt
-+++ b/ggml/src/ggml-vulkan/CMakeLists.txt
-@@ -126,6 +126,11 @@ if (Vulkan_FOUND)
-         list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_SHADER_DEBUG_INFO=ON)
-     endif()
- 
-+    if (GGML_VULKAN_MIN_1_1)
-+        add_compile_definitions(GGML_VULKAN_MIN_1_1)
-+        list(APPEND VULKAN_SHADER_GEN_CMAKE_ARGS -DGGML_VULKAN_MIN_1_1=ON)
-+    endif()
-+
-     if (GGML_VULKAN_VALIDATE)
-         add_compile_definitions(GGML_VULKAN_VALIDATE)
-     endif()
-diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
-index 10a9ea21..d68c20d8 100644
---- a/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
-+++ b/ggml/src/ggml-vulkan/vulkan-shaders/CMakeLists.txt
-@@ -27,6 +27,9 @@ if (GGML_VULKAN_SHADER_DEBUG_INFO)
-     add_compile_definitions(GGML_VULKAN_SHADER_DEBUG_INFO)
-     message(STATUS "Enabling shader debug info")
- endif()
-+if (GGML_VULKAN_MIN_1_1)
-+    add_compile_definitions(GGML_VULKAN_MIN_1_1)
-+endif()
- 
- set(TARGET vulkan-shaders-gen)
- add_executable(${TARGET} vulkan-shaders-gen.cpp)
-diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-index 1925582f..efc2e123 100644
---- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-+++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-@@ -334,7 +334,15 @@ compile_count_guard acquire_compile_slot() {
- }
- 
- void string_to_spv_func(std::string name, std::string in_path, std::string out_path, std::map<std::string, std::string> defines, bool coopmat, bool dep_file, compile_count_guard slot) {
--    std::string target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
-+    std::string target_env;
-+#ifdef GGML_VULKAN_MIN_1_1
-+    // Vulkan 1.1 compatibility mode: build all non-_cm2 shaders with the 1.1 target.
-+    // (RoundingModeRTE is injected into the SPIR-V at pipeline-creation time upstream, so
-+    //  no compile-time RTE handling is needed here anymore.)
-+    target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.1";
-+#else
-+    target_env = (name.find("_cm2") != std::string::npos) ? "--target-env=vulkan1.3" : "--target-env=vulkan1.2";
-+#endif
- 
-     #ifdef _WIN32
-         std::vector<std::string> cmd = {GLSLC, "-fshader-stage=compute", target_env, "\"" + in_path + "\"", "-o", "\"" + out_path + "\""};
--- 
-2.47.3
-
-
-From 9d5528de3b68b6edd4c6dce01083c4435b9f1581 Mon Sep 17 00:00:00 2001
+From de6b96e4b26e1fe38d837884721c1c1dee4da837 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:22:23 +0100
-Subject: [PATCH 09/24] vulkan: propagate pipeline failure
+Subject: [PATCH 01/15] vulkan: propagate pipeline failure
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 17 +++++++++++++++++
  1 file changed, 17 insertions(+)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 633e5ea1..f7b9ef0c 100644
+index a483d22c..e12aa593 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -2127,6 +2127,9 @@ struct ggml_backend_vk_context {
+@@ -2125,6 +2125,9 @@ struct ggml_backend_vk_context {
      // and set to true after the buffer contents are consumed.
      bool prealloc_x_need_sync, prealloc_y_need_sync, prealloc_split_k_need_sync;
  
@@ -781,7 +21,7 @@ index 633e5ea1..f7b9ef0c 100644
      vk_context_ref compute_ctx;
  
      vk_context_ref transfer_ctx;
-@@ -7801,6 +7804,12 @@ template <typename T, uint32_t N> const T *push_constant_data(const std::array<T
+@@ -7618,6 +7621,12 @@ template <typename T, uint32_t N> const T *push_constant_data(const std::array<T
  
  template <typename T>
  static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& subctx, vk_pipeline& pipeline, std::initializer_list<vk::DescriptorBufferInfo> const& descriptor_buffer_infos, const T &push_constants, std::array<uint32_t, 3> elements) {
@@ -794,7 +34,7 @@ index 633e5ea1..f7b9ef0c 100644
      const uint32_t wg0 = CEIL_DIV(elements[0], pipeline->wg_denoms[0]);
      const uint32_t wg1 = CEIL_DIV(elements[1], pipeline->wg_denoms[1]);
      const uint32_t wg2 = CEIL_DIV(elements[2], pipeline->wg_denoms[2]);
-@@ -16425,6 +16434,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+@@ -16242,6 +16251,7 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
      ctx->prealloc_size_add_rms_partials_offset = 0;
      ctx->do_add_rms_partials = false;
      ctx->do_add_rms_partials_offset_calculation = false;
@@ -802,7 +42,7 @@ index 633e5ea1..f7b9ef0c 100644
  
      int last_node = cgraph->n_nodes - 1;
  
-@@ -16505,6 +16515,10 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+@@ -16322,6 +16332,10 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
      uint64_t flops_per_submit = std::min(flops_cap, ctx->last_total_flops / 40u);
  
      for (int i = 0; i < cgraph->n_nodes; i++) {
@@ -813,7 +53,7 @@ index 633e5ea1..f7b9ef0c 100644
          if (first_node_in_batch) {
              submit_node_idx = i;
          }
-@@ -16819,6 +16833,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
+@@ -16636,6 +16650,9 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
          ggml_vk_synchronize(ctx);
      }
  
@@ -827,10 +67,10 @@ index 633e5ea1..f7b9ef0c 100644
 2.47.3
 
 
-From ffa3c3a98117020e79b334a160c0915905009a1d Mon Sep 17 00:00:00 2001
+From 74792793f265a64795064328446bd4f65d6ef1c6 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Thu, 22 Jan 2026 14:38:57 +0100
-Subject: [PATCH 10/24] vulkan: low priority on android
+Subject: [PATCH 02/15] vulkan: low priority on android
 
 Prevent UI lag (a little).
 ---
@@ -838,20 +78,20 @@ Prevent UI lag (a little).
  1 file changed, 34 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index f7b9ef0c..a032e9b2 100644
+index e12aa593..4329a833 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -707,6 +707,7 @@ struct vk_device_struct {
-     // Not needed for Vulkan 1.2+ where it's a core function
-     PFN_vkGetBufferDeviceAddressKHR pfn_vkGetBufferDeviceAddress = nullptr;
+@@ -705,6 +705,7 @@ struct vk_device_struct {
+     bool shader_int64;
+     bool buffer_device_address;
      bool vulkan_memory_model;
 +    bool global_priority = false;
  
      bool add_rms_fusion;
      uint32_t partials_binding_alignment;
-@@ -5883,6 +5884,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
-             } else if (strcmp("VK_EXT_descriptor_indexing", properties.extensionName) == 0) {
-                 descriptor_indexing_ext = true;
+@@ -5855,6 +5856,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+                 device->shader_64b_indexing = true;
+ #endif
              }
 +#if defined(__ANDROID__)
 +            else if (strcmp("VK_EXT_global_priority", properties.extensionName) == 0) {
@@ -860,8 +100,8 @@ index f7b9ef0c..a032e9b2 100644
 +#endif
          }
  
-         if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
-@@ -6090,14 +6096,34 @@ static vk_device ggml_vk_get_device(size_t idx) {
+         vk::PhysicalDeviceProperties2 props2;
+@@ -6038,14 +6044,34 @@ static vk_device ggml_vk_get_device(size_t idx) {
          const float priorities[] = { 1.0f, 1.0f };
          device->single_queue = compute_queue_family_index == transfer_queue_family_index && queue_family_props[compute_queue_family_index].queueCount == 1;
  
@@ -900,7 +140,7 @@ index f7b9ef0c..a032e9b2 100644
          }
          vk::DeviceCreateInfo device_create_info{};
          std::vector<const char *> device_extensions;
-@@ -6291,6 +6317,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6178,6 +6204,10 @@ static vk_device ggml_vk_get_device(size_t idx) {
              device_extensions.push_back("VK_EXT_external_memory_host");
          }
  
@@ -915,18 +155,18 @@ index f7b9ef0c..a032e9b2 100644
 2.47.3
 
 
-From ecfb9f40ebd2f4fabd60bcd0c4e6ed9394694f5a Mon Sep 17 00:00:00 2001
+From 8745ac4a84abb8eb6f6207d7e83deebd2f8d737b Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:45 +0100
-Subject: [PATCH 11/24] vulkan: don't throw an exception when init fails
+Subject: [PATCH 03/15] vulkan: don't throw an exception when init fails
 
 Print error and fallback to CPU instead.
 ---
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 40 +++++++++++++++++++++++-----
- 1 file changed, 33 insertions(+), 7 deletions(-)
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 29 ++++++++++++++++++++++++----
+ 1 file changed, 25 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index a032e9b2..10676a83 100644
+index 4329a833..f978b726 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -668,6 +668,8 @@ struct vk_device_struct {
@@ -938,7 +178,7 @@ index a032e9b2..10676a83 100644
      vk::PhysicalDevice physical_device;
      vk::PhysicalDeviceProperties properties;
      std::string name;
-@@ -5771,8 +5773,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -5764,8 +5766,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
          std::vector<vk::PhysicalDevice> physical_devices = vk_instance.instance.enumeratePhysicalDevices();
  
          if (dev_num >= physical_devices.size()) {
@@ -950,35 +190,7 @@ index a032e9b2..10676a83 100644
          }
  
          device->physical_device = physical_devices[dev_num];
-@@ -5892,11 +5895,14 @@ static vk_device ggml_vk_get_device(size_t idx) {
-         }
- 
-         if (!device_is_vulkan_12 && !timeline_semaphore_khr) {
--            throw std::runtime_error("Unsupported device: timeline semaphores required");
-+            device->initialization_failed = true;
-+            GGML_LOG_ERROR("Unsupported device: timeline semaphores required");
-+            return nullptr;
-         }
- 
-         if (!device_is_vulkan_12 && !int8_storage_khr) {
--            throw std::runtime_error("Unsupported device: 8-bit storage required");
-+            GGML_LOG_ERROR("Unsupported device: 8-bit storage required");
-+            return nullptr;
-         }
- 
-         vk::PhysicalDeviceProperties2 props2;
-@@ -6662,7 +6668,9 @@ static vk_device ggml_vk_get_device(size_t idx) {
-                 vkGetDeviceProcAddr(device->device, "vkGetBufferDeviceAddressKHR");
- 
-             if (!device->pfn_vkGetBufferDeviceAddress) {
--                throw std::runtime_error("Failed to load vkGetBufferDeviceAddressKHR");
-+                device->initialization_failed = true;
-+                GGML_LOG_ERROR("Failed to load vkGetBufferDeviceAddressKHR");
-+                return nullptr;
-             }
-         }
- 
-@@ -6803,7 +6811,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
+@@ -6632,7 +6635,11 @@ static vk_device ggml_vk_get_device(size_t idx) {
          return device;
      }
  
@@ -991,7 +203,7 @@ index a032e9b2..10676a83 100644
  }
  
  static void ggml_vk_print_gpu_info(size_t idx) {
-@@ -7298,6 +7310,9 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
+@@ -7115,6 +7122,9 @@ static void ggml_vk_init(ggml_backend_vk_context * ctx, size_t idx) {
      ctx->name = GGML_VK_NAME + std::to_string(idx);
  
      ctx->device = ggml_vk_get_device(idx);
@@ -1001,7 +213,7 @@ index a032e9b2..10676a83 100644
  
      ctx->semaphore_idx = 0;
      ctx->event_idx = 0;
-@@ -15565,6 +15580,9 @@ ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num) {
+@@ -15382,6 +15392,9 @@ ggml_backend_buffer_type_t ggml_backend_vk_buffer_type(size_t dev_num) {
      VK_LOG_DEBUG("ggml_backend_vk_buffer_type(" << dev_num << ")");
  
      vk_device dev = ggml_vk_get_device(dev_num);
@@ -1011,7 +223,7 @@ index a032e9b2..10676a83 100644
  
      return &dev->buffer_type;
  }
-@@ -15634,7 +15652,10 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
+@@ -15451,7 +15464,10 @@ ggml_backend_buffer_type_t ggml_backend_vk_host_buffer_type() {
  
      // Make sure device 0 is initialized
      ggml_vk_instance_init();
@@ -1023,7 +235,7 @@ index a032e9b2..10676a83 100644
  
      return &ggml_backend_vk_buffer_type_host;
  }
-@@ -17211,6 +17232,11 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
+@@ -17028,6 +17044,11 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
      ggml_backend_vk_context * ctx = new ggml_backend_vk_context;
      ggml_vk_init(ctx, dev_num);
  
@@ -1039,10 +251,10 @@ index a032e9b2..10676a83 100644
 2.47.3
 
 
-From 5d8c8536e7c8e5208b2a902d8b26429ec7028d3b Mon Sep 17 00:00:00 2001
+From 364246add4ae095caa9cd81cee4e8f845632692c Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Sat, 3 Jan 2026 18:34:00 +0100
-Subject: [PATCH 12/24] whisper: init prompt just in time
+Subject: [PATCH 04/15] whisper: init prompt just in time
 
 ---
  src/whisper.cpp | 42 +++++++++++++++++++++++++-----------------
@@ -1119,10 +331,10 @@ index 2a95bdb1..ca763928 100644
 2.47.3
 
 
-From 8e57c5b5b8da087bbf5f6b9e8bfe0a7262ab8229 Mon Sep 17 00:00:00 2001
+From e3e232ea5f38428b47843e861309e9e8d2db9e06 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:09 +0100
-Subject: [PATCH 13/24] whisper: add whisper_full_get_prompt_past
+Subject: [PATCH 05/15] whisper: add whisper_full_get_prompt_past
 
 ---
  include/whisper.h |  5 +++++
@@ -1171,10 +383,10 @@ index ca763928..a8e4347f 100644
 2.47.3
 
 
-From 6738ab144eb09d3a0eba222a5bc630038307998a Mon Sep 17 00:00:00 2001
+From d31344e6fa1939181e896d5b6edc8df035983f08 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:19 +0100
-Subject: [PATCH 14/24] whisper: add whisper_context_callback
+Subject: [PATCH 06/15] whisper: add whisper_context_callback
 
 ---
  include/whisper.h | 16 ++++++++++++++++
@@ -1278,10 +490,10 @@ index a8e4347f..bad2ef78 100644
 2.47.3
 
 
-From d51cbfb8f59f9439aedf6794adaa258e53b2554f Mon Sep 17 00:00:00 2001
+From 79808be0a56787856e0e5baaa40d991cf87f6c2c Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 17:25:57 +0100
-Subject: [PATCH 15/24] whisper: add whisper_set_vad_context
+Subject: [PATCH 07/15] whisper: add whisper_set_vad_context
 
 ---
  include/whisper.h |  7 +++++++
@@ -1348,10 +560,10 @@ index bad2ef78..97a9b006 100644
 2.47.3
 
 
-From 13b356f8b18647fe838266d0f94aede0a17c8989 Mon Sep 17 00:00:00 2001
+From 606e8071d74a91bf018053178ed6ebcc9743e4bc Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 12 Jan 2026 11:47:28 +0100
-Subject: [PATCH 16/24] whisper: clamp duration_ms to vad samples
+Subject: [PATCH 08/15] whisper: clamp duration_ms to vad samples
 
 ---
  src/whisper.cpp | 8 ++++++++
@@ -1387,10 +599,10 @@ index 97a9b006..1a70c182 100644
 2.47.3
 
 
-From 062a0cca13f36c7bbf1bb8a1e632aea8037450d8 Mon Sep 17 00:00:00 2001
+From 3c4d743a749f895e89863aad402dc08314ff324a Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:11 +0100
-Subject: [PATCH 17/24] ggml-cpu: fix ggml_thread_apply_priority for Android
+Subject: [PATCH 09/15] ggml-cpu: fix ggml_thread_apply_priority for Android
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 25 +++++++++++++++++++++++++
@@ -1443,10 +655,10 @@ index a82842fc..138c6d39 100644
 2.47.3
 
 
-From 7ae4141e28b3d06db4d3f493d9b050e5d53679df Mon Sep 17 00:00:00 2001
+From 459ded15018daa11030208783d3301fd217a64b2 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:29 +0100
-Subject: [PATCH 18/24] ggml: default Realtime CPU
+Subject: [PATCH 10/15] ggml: default Realtime CPU
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 1 +
@@ -1482,10 +694,10 @@ index de0321d9..bae5691a 100644
 2.47.3
 
 
-From bcedb0bcf4e4911c99dced0e80703ba585b06470 Mon Sep 17 00:00:00 2001
+From 8299ca110f3a3cdcbede1517816218b4b3d9e108 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:55 +0100
-Subject: [PATCH 19/24] add whisper_ctx_is_using_gpu
+Subject: [PATCH 11/15] add whisper_ctx_is_using_gpu
 
 ---
  include/whisper.h |  3 +++
@@ -1548,10 +760,10 @@ index 1a70c182..668d43c6 100644
 2.47.3
 
 
-From 799570bd145a90ae750b384245d2cf8d1977681b Mon Sep 17 00:00:00 2001
+From 19dc003462af770aaab29362145a8a82b305bb4f Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 14:18:08 +0100
-Subject: [PATCH 20/24] ggml: fix android 32bit build
+Subject: [PATCH 12/15] ggml: fix android 32bit build
 
 RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulkan.cpp:1922:92: error: invalid operands to binary expression ('basic_ostream<char, char_traits<char>>' and 'vk::Buffer')
    1922 |     VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
@@ -1560,10 +772,10 @@ RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulk
  1 file changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 10676a83..d8787608 100644
+index f978b726..41889d55 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -2259,7 +2259,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
+@@ -2257,7 +2257,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
      allocations[buf->buffer] = size;
      total_device += device ? size : 0;
      total_host += device ? 0 : size;
@@ -1572,7 +784,7 @@ index 10676a83..d8787608 100644
  }
  
  void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
-@@ -2275,10 +2275,10 @@ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
+@@ -2273,10 +2273,10 @@ void vk_memory_logger::log_deallocation(vk_buffer_ref buf_ref) {
      if (it != allocations.end()) {
          total_device -= device ? it->second : 0;
          total_host -= device ? 0 : it->second;
@@ -1585,7 +797,7 @@ index 10676a83..d8787608 100644
      }
  }
  
-@@ -8141,7 +8141,7 @@ static bool ggml_vk_buffer_write_2d_async(vk_context subctx, vk_buffer& dst, siz
+@@ -7953,7 +7953,7 @@ static bool ggml_vk_buffer_write_2d_async(vk_context subctx, vk_buffer& dst, siz
      }
  
      ggml_vk_sync_buffers(nullptr, subctx);
@@ -1598,10 +810,10 @@ index 10676a83..d8787608 100644
 2.47.3
 
 
-From fe0127ccd8b87d087ab6a0fae0e9048936f6c35e Mon Sep 17 00:00:00 2001
+From d906762036a3294278f9b875c0216af375bbaa53 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:48:45 +0100
-Subject: [PATCH 21/24] whisper: use int64_t for
+Subject: [PATCH 13/15] whisper: use int64_t for
  whisper_vad_segments_get_segment_t*
 
 Don't do a int64_t -> float conversion, when not needed. (struct
@@ -1648,46 +860,10 @@ index 668d43c6..a068f8b6 100644
 2.47.3
 
 
-From 2c78a6452a389065b3462c942f624273637fcd8f Mon Sep 17 00:00:00 2001
-From: Thomas Guillem <thomas@gllm.fr>
-Date: Fri, 24 Jul 2026 20:43:04 +0000
-Subject: [PATCH 22/24] vulkan: disable spirv-opt for vulkan1.1 _bda shaders
-
-_bda shaders emit a SPIR-V 1.4 spec constant op (OpSpecConstantOp UConvert)
-that spirv-opt rejects when targeting vulkan1.1. Only 2 of 1323 variants are
-affected, so exclude those instead of skipping spirv-opt for the whole set:
-keeping -O for the rest is worth ~19% at runtime.
----
- .../src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp | 8 +++++++-
- 1 file changed, 7 insertions(+), 1 deletion(-)
-
-diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-index efc2e123..57c52c8a 100644
---- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-+++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
-@@ -354,7 +354,13 @@ void string_to_spv_func(std::string name, std::string in_path, std::string out_p
-     // disable spirv-opt for bf16 shaders for https://github.com/ggml-org/llama.cpp/issues/15344
-     // disable spirv-opt for rope shaders for https://github.com/ggml-org/llama.cpp/issues/16860
-     // disable spirv-opt for dot2 shaders (spirv-opt doesn't recognize SPV_VALVE_mixed_float_dot_product capability)
--    if (!coopmat && name.find("bf16") == std::string::npos && name.find("rope") == std::string::npos && name.find("_dot2") == std::string::npos) {
-+    bool run_spirv_opt = !coopmat && name.find("bf16") == std::string::npos &&
-+                         name.find("rope") == std::string::npos && name.find("_dot2") == std::string::npos;
-+#ifdef GGML_VULKAN_MIN_1_1
-+    // _bda shaders emit a SPIR-V 1.4 spec constant op that spirv-opt rejects at 1.1
-+    run_spirv_opt = run_spirv_opt && name.find("_bda") == std::string::npos;
-+#endif
-+    if (run_spirv_opt) {
-         cmd.push_back("-O");
-     }
- 
--- 
-2.47.3
-
-
-From 4d3db83a7a4e5defd8b8147ba3bc05e9f0df685d Mon Sep 17 00:00:00 2001
+From c75580f29ed5a6fec080924e2e054f18741912b9 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Sun, 26 Jul 2026 12:36:17 +0000
-Subject: [PATCH 23/24] vulkan: don't use KHR_coopmat on Mali
+Subject: [PATCH 14/15] vulkan: don't use KHR_coopmat on Mali
 
 Mali advertises the extension but has no matrix hardware, so the coopmat
 pipelines are emulated and slower than the standard path. On a Mali-G715,
@@ -1700,10 +876,10 @@ is RDNA3-based so it must keep coopmat.
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index d8787608..0c3148a1 100644
+index 41889d55..00b912f5 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-@@ -18323,7 +18323,8 @@ static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDevicePrope
+@@ -18105,7 +18105,8 @@ static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDevicePrope
          }
          return true;
      default:
@@ -1717,10 +893,10 @@ index d8787608..0c3148a1 100644
 2.47.3
 
 
-From 6c4cbcd504e2cd9dd5eb0f86496d0e470fc91bba Mon Sep 17 00:00:00 2001
+From 6d94b698e29d0c4e2e086006ad262479d649b4e2 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Thu, 30 Jul 2026 11:19:48 +0000
-Subject: [PATCH 24/24] ggml-cpu: tighten ARM variant selection
+Subject: [PATCH 15/15] ggml-cpu: tighten ARM variant selection
 
 Android selects CPU modules from HWCAP at runtime. Using armv8.2-a as
 the base for the FP16 and DotProd variant also permits unrelated LSE and
@@ -1740,7 +916,7 @@ include only the baseline and fp16-dotprod modules.
  4 files changed, 19 insertions(+), 9 deletions(-)
 
 diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
-index 030349f3..5578c59b 100644
+index 0470e3e2..217dbc01 100644
 --- a/ggml/CMakeLists.txt
 +++ b/ggml/CMakeLists.txt
 @@ -181,6 +181,7 @@ option(GGML_XTHEADVECTOR     "ggml: enable xtheadvector"      OFF)

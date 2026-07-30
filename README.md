@@ -7,7 +7,7 @@ Android app for audio/video transcription using whisper.cpp.
 - Audio file transcription (via share or file picker, also extracts audio from
   video files)
 - Multiple Whisper model sizes (base, small)
-- GPU acceleration via Vulkan (Starting Vulkan 1.1)
+- GPU acceleration via Vulkan 1.2+
 - Turbo mode (GPU + CPU) can achieve arround 4x realtime speed with the larger
   model (ggml-small-q8_0)
 - Background transcription with foreground service
