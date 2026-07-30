@@ -19,10 +19,16 @@
 #include "stream.h"
 #include "ggml.h"
 #include "gpu_probe.h"
+#ifdef VOICESKIP_CPU_MODULES
+#include "backend_loader.h"
+#include "cpu_backend.h"
+#endif
 
 #define UNUSED(x) (void)(x)
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define TAG "JNI"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 // #define EXTRA_LOGS
 
@@ -31,8 +37,47 @@ static jclass g_class_illegal_argument;
 static jclass g_class_out_of_memory;
 static jfieldID g_field_mInstance;
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#ifdef VOICESKIP_CPU_MODULES
+static pthread_once_t g_vulkan_backend_once = PTHREAD_ONCE_INIT;
+static bool g_vulkan_backend_available;
+
+static void
+initialize_vulkan_backend(void)
+{
+    g_vulkan_backend_available =
+        voiceskip_backend_load("libggml-vulkan.so");
+}
+
+static bool
+initialize_native_backends(JNIEnv *env)
+{
+    enum voiceskip_cpu_backend cpu_backend =
+        voiceskip_cpu_backend_init();
+    if (cpu_backend == VOICESKIP_CPU_BACKEND_FAILED)
+    {
+        (*env)->ThrowNew(env, g_class_illegal_state,
+                         "Failed to register a CPU backend");
+        return false;
+    }
+
+    LOGI("Selected CPU backend: %s",
+         voiceskip_cpu_backend_basename(cpu_backend));
+
+    if (pthread_once(&g_vulkan_backend_once,
+                     initialize_vulkan_backend) != 0)
+    {
+        LOGE("Failed to initialize Vulkan backend selection");
+        return true;
+    }
+
+    if (!g_vulkan_backend_available)
+    {
+        LOGI("Vulkan backend module is unavailable");
+    }
+
+    return true;
+}
+#endif
 
 static void
 whisper_android_log_callback(enum ggml_log_level level, const char *text, void *user_data)
@@ -945,6 +990,13 @@ worker_thread_func(void *arg)
 static jlong
 nativeCreate(JNIEnv *env, jobject thiz)
 {
+#ifdef VOICESKIP_CPU_MODULES
+    if (!initialize_native_backends(env))
+    {
+        return 0;
+    }
+#endif
+
     LOGI("Creating WhisperContext instance");
 
     struct whisper_jni_context *ctx = malloc(sizeof *ctx);

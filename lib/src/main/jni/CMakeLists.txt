@@ -8,14 +8,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a")
-endif ()
-
 # Set linker flags for 16 KB page size support
 # This is CRITICAL for compatibility with 16 KB devices
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
 include(FetchContent)
@@ -137,6 +133,113 @@ set(_spirv_headers_shim "${CMAKE_BINARY_DIR}/spirv-headers-shim")
 file(WRITE "${_spirv_headers_shim}/SPIRV-HeadersConfig.cmake" "set(SPIRV-Headers_FOUND TRUE)\n")
 set(SPIRV-Headers_DIR "${_spirv_headers_shim}" CACHE PATH "" FORCE)
 
+set(VOICESKIP_CPU_MODULES_ACTIVE OFF)
+if (${ANDROID_ABI} STREQUAL "arm64-v8a" AND NOT GGML_HOME)
+    set(VOICESKIP_CPU_MODULES_ACTIVE ON)
+endif()
+
+if (GGML_HOME)
+    set(GGML_CONTENT_NAME ggml)
+    FetchContent_Declare(${GGML_CONTENT_NAME} SOURCE_DIR ${GGML_HOME})
+else()
+    set(GGML_CONTENT_NAME "ggml_${WHISPER_CPP_STATE_ID}")
+    FetchContent_Declare(
+        ${GGML_CONTENT_NAME}
+        SOURCE_DIR ${WHISPER_LIB_DIR}/ggml
+    )
+endif()
+
+set(GGML_VULKAN ON CACHE BOOL "" FORCE)
+set(GGML_VULKAN_MIN_1_1 ON CACHE BOOL "" FORCE)
+set(GGML_CPU_ARM_ARCH "" CACHE STRING "" FORCE)
+
+if (VOICESKIP_CPU_MODULES_ACTIVE)
+    set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+    set(GGML_BACKEND_DL ON CACHE BOOL "" FORCE)
+    set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
+    set(
+        GGML_CPU_VARIANTS
+        "baseline;fp16-dotprod"
+        CACHE STRING "" FORCE
+    )
+else()
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
+    set(GGML_CPU_ALL_VARIANTS OFF CACHE BOOL "" FORCE)
+    set(GGML_CPU_VARIANTS "" CACHE STRING "" FORCE)
+endif()
+
+FetchContent_MakeAvailable(${GGML_CONTENT_NAME})
+
+if (VOICESKIP_CPU_MODULES_ACTIVE)
+    set_target_properties(
+        ggml-cpu-baseline
+        ggml-cpu-fp16-dotprod
+        PROPERTIES
+        VERSION ""
+        SOVERSION ""
+    )
+    target_link_options(
+        ggml-cpu-baseline
+        PRIVATE -Wl,-soname,libggml-cpu-baseline.so
+    )
+    target_link_options(
+        ggml-cpu-fp16-dotprod
+        PRIVATE -Wl,-soname,libggml-cpu-fp16-dotprod.so
+    )
+    list(
+        APPEND SOURCE_FILES
+        ${CMAKE_SOURCE_DIR}/cpu_backend.c
+        ${CMAKE_SOURCE_DIR}/backend_loader.cpp
+    )
+endif()
+
+function(voiceskip_set_arm64_baseline target_name)
+    if (${ANDROID_ABI} STREQUAL "arm64-v8a" AND TARGET ${target_name})
+        target_compile_options(${target_name} PRIVATE -march=armv8-a)
+    endif()
+endfunction()
+
+voiceskip_set_arm64_baseline(ggml)
+voiceskip_set_arm64_baseline(ggml-base)
+voiceskip_set_arm64_baseline(ggml-vulkan)
+
+if (VOICESKIP_CPU_MODULES_ACTIVE)
+    voiceskip_set_arm64_baseline(ggml-cpu-baseline-feats)
+    voiceskip_set_arm64_baseline(ggml-cpu-fp16-dotprod-feats)
+else()
+    voiceskip_set_arm64_baseline(ggml-cpu)
+endif()
+
+function(voiceskip_set_native_link_options target_name)
+    if (NOT TARGET ${target_name})
+        return()
+    endif()
+
+    get_target_property(target_type ${target_name} TYPE)
+    if (
+        target_type STREQUAL "SHARED_LIBRARY"
+        OR target_type STREQUAL "MODULE_LIBRARY"
+    )
+        target_link_options(
+            ${target_name}
+            PRIVATE -Wl,-z,max-page-size=16384
+        )
+    endif()
+endfunction()
+
+foreach(
+    native_target
+    ggml
+    ggml-base
+    ggml-cpu
+    ggml-cpu-baseline
+    ggml-cpu-fp16-dotprod
+    ggml-vulkan
+)
+    voiceskip_set_native_link_options(${native_target})
+endforeach()
+
 function(build_library target_name)
     add_library(
         ${target_name}
@@ -144,15 +247,23 @@ function(build_library target_name)
         ${SOURCE_FILES}
     )
 
-    target_compile_definitions(${target_name} PUBLIC
-        GGML_USE_CPU
-        GGML_USE_VULKAN
-    )
+    if (NOT VOICESKIP_CPU_MODULES_ACTIVE)
+        target_compile_definitions(${target_name} PUBLIC
+            GGML_USE_CPU
+            GGML_USE_VULKAN
+        )
+    else()
+        target_compile_definitions(
+            ${target_name}
+            PRIVATE VOICESKIP_CPU_MODULES
+        )
+    endif()
     target_compile_definitions(${target_name} PRIVATE WHISPER_VERSION="${WHISPER_VERSION}")
 
     if (${target_name} STREQUAL "whisper_vfpv4")
         target_compile_options(${target_name} PRIVATE -mfpu=neon-vfpv4)
     endif ()
+    voiceskip_set_arm64_baseline(${target_name})
 
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
         target_compile_options(${target_name} PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
@@ -168,32 +279,16 @@ function(build_library target_name)
         target_link_options(${target_name} PRIVATE -Wl,-z,max-page-size=16384)
     endif ()
 
-    if (GGML_HOME)
-        set(GGML_CONTENT_NAME ggml)
-        FetchContent_Declare(${GGML_CONTENT_NAME} SOURCE_DIR ${GGML_HOME})
-    else()
-        set(GGML_CONTENT_NAME "ggml_${WHISPER_CPP_STATE_ID}")
-        FetchContent_Declare(
-            ${GGML_CONTENT_NAME}
-            SOURCE_DIR ${WHISPER_LIB_DIR}/ggml
+    if (VOICESKIP_CPU_MODULES_ACTIVE)
+        add_dependencies(
+            ${target_name}
+            ggml-cpu-baseline
+            ggml-cpu-fp16-dotprod
+            ggml-vulkan
         )
     endif()
 
-    # Enable Vulkan backend in GGML
-    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
-    set(GGML_VULKAN_MIN_1_1 ON CACHE BOOL "" FORCE)
-    set(GGML_CPU_ARM_ARCH "" CACHE STRING "" FORCE)
-
-    FetchContent_MakeAvailable(${GGML_CONTENT_NAME})
-
-    # Apply 16 KB page size to GGML library as well
-    if(TARGET ggml)
-        target_link_options(ggml PRIVATE -Wl,-z,max-page-size=16384)
-    endif()
-
     target_link_libraries(${target_name} ${LOG_LIB} android ggml)
-
-
 endfunction()
 
 if (${ANDROID_ABI} STREQUAL "armeabi-v7a")

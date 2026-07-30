@@ -1,7 +1,7 @@
 From 31b99270009a8c11de85b950e2390c05e02ab5c6 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Fri, 2 Jan 2026 17:33:08 +0100
-Subject: [PATCH 01/23] vulkan: use VkPhysicalDeviceSubgroupProperties
+Subject: [PATCH 01/24] vulkan: use VkPhysicalDeviceSubgroupProperties
 
 Instead of VkPhysicalDeviceVulkan11Properties, that was added in Vulkan 1.2.
 
@@ -66,7 +66,7 @@ index a483d22c..ca90c2fb 100644
 From 37247652ac4b1b3245fbc7e64c4d81549fae7dbc Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:02:38 +0100
-Subject: [PATCH 02/23] vulkan: use VkPhysicalDeviceFloatControlsProperties on
+Subject: [PATCH 02/24] vulkan: use VkPhysicalDeviceFloatControlsProperties on
  Vulkan 1.1
 
 "The members of VkPhysicalDeviceVulkan12Properties must have the same
@@ -160,7 +160,7 @@ index ca90c2fb..09329166 100644
 From 4244adf347a31ca5a6fb5ec0eb5a40d0577a9be4 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:25:42 +0100
-Subject: [PATCH 03/23] vulkan: use individual features structures on Vulkan
+Subject: [PATCH 03/24] vulkan: use individual features structures on Vulkan
  1.1
 
 ---
@@ -439,7 +439,7 @@ index 09329166..539ddde1 100644
 From 908e57837fbf0976514e9263a26260248dca47f0 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:29:31 +0100
-Subject: [PATCH 04/23] vulkan: use pfn_vkGetBufferDeviceAddress on Vulkan 1.1
+Subject: [PATCH 04/24] vulkan: use pfn_vkGetBufferDeviceAddress on Vulkan 1.1
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 20 ++++++++++++++++++--
@@ -497,7 +497,7 @@ index 539ddde1..5fc8b30c 100644
 From 4fa38b70c326d4fa454d8d9b6dc59dc1e9abb107 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:05:09 +0100
-Subject: [PATCH 05/23] vulkan: handle Vulkan 1.1 in ggml_vk_print_gpu_info()
+Subject: [PATCH 05/24] vulkan: handle Vulkan 1.1 in ggml_vk_print_gpu_info()
 
 Use VkPhysicalDeviceShaderFloat16Int8Features on Vulkan 1.1
 ---
@@ -572,7 +572,7 @@ index 5fc8b30c..855957ae 100644
 From d4af78f3ed3d4ffe11f62036be5a92b125173670 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:21:06 +0100
-Subject: [PATCH 06/23] vulkan: handle Vulkan 1.1 in
+Subject: [PATCH 06/24] vulkan: handle Vulkan 1.1 in
  ggml_vk_device_is_supported()
 
 Check required exstensions when using Vulkan 1.1 and use
@@ -645,7 +645,7 @@ index 855957ae..daf81ef0 100644
 From 0b51095296d601aa9b35a43bb3678475f2a813d6 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Wed, 21 Jan 2026 06:29:50 +0100
-Subject: [PATCH 07/23] vulkan: lower API requirement to 1.1
+Subject: [PATCH 07/24] vulkan: lower API requirement to 1.1
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 6 +++---
@@ -675,7 +675,7 @@ index daf81ef0..633e5ea1 100644
 From 60277cb612470333decde509f90d1ad5bf0455bc Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 13:25:52 +0100
-Subject: [PATCH 08/23] vulkan: add 1.1 shader compatibility mode
+Subject: [PATCH 08/24] vulkan: add 1.1 shader compatibility mode
 
 if GGML_VULKAN_MIN_1_1 is defined:
 
@@ -761,7 +761,7 @@ index 1925582f..efc2e123 100644
 From 9d5528de3b68b6edd4c6dce01083c4435b9f1581 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:22:23 +0100
-Subject: [PATCH 09/23] vulkan: propagate pipeline failure
+Subject: [PATCH 09/24] vulkan: propagate pipeline failure
 
 ---
  ggml/src/ggml-vulkan/ggml-vulkan.cpp | 17 +++++++++++++++++
@@ -830,7 +830,7 @@ index 633e5ea1..f7b9ef0c 100644
 From ffa3c3a98117020e79b334a160c0915905009a1d Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Thu, 22 Jan 2026 14:38:57 +0100
-Subject: [PATCH 10/23] vulkan: low priority on android
+Subject: [PATCH 10/24] vulkan: low priority on android
 
 Prevent UI lag (a little).
 ---
@@ -918,7 +918,7 @@ index f7b9ef0c..a032e9b2 100644
 From ecfb9f40ebd2f4fabd60bcd0c4e6ed9394694f5a Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:45 +0100
-Subject: [PATCH 11/23] vulkan: don't throw an exception when init fails
+Subject: [PATCH 11/24] vulkan: don't throw an exception when init fails
 
 Print error and fallback to CPU instead.
 ---
@@ -1042,7 +1042,7 @@ index a032e9b2..10676a83 100644
 From 5d8c8536e7c8e5208b2a902d8b26429ec7028d3b Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Sat, 3 Jan 2026 18:34:00 +0100
-Subject: [PATCH 12/23] whisper: init prompt just in time
+Subject: [PATCH 12/24] whisper: init prompt just in time
 
 ---
  src/whisper.cpp | 42 +++++++++++++++++++++++++-----------------
@@ -1122,7 +1122,7 @@ index 2a95bdb1..ca763928 100644
 From 8e57c5b5b8da087bbf5f6b9e8bfe0a7262ab8229 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:09 +0100
-Subject: [PATCH 13/23] whisper: add whisper_full_get_prompt_past
+Subject: [PATCH 13/24] whisper: add whisper_full_get_prompt_past
 
 ---
  include/whisper.h |  5 +++++
@@ -1174,7 +1174,7 @@ index ca763928..a8e4347f 100644
 From 6738ab144eb09d3a0eba222a5bc630038307998a Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 14:32:19 +0100
-Subject: [PATCH 14/23] whisper: add whisper_context_callback
+Subject: [PATCH 14/24] whisper: add whisper_context_callback
 
 ---
  include/whisper.h | 16 ++++++++++++++++
@@ -1281,7 +1281,7 @@ index a8e4347f..bad2ef78 100644
 From d51cbfb8f59f9439aedf6794adaa258e53b2554f Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 5 Jan 2026 17:25:57 +0100
-Subject: [PATCH 15/23] whisper: add whisper_set_vad_context
+Subject: [PATCH 15/24] whisper: add whisper_set_vad_context
 
 ---
  include/whisper.h |  7 +++++++
@@ -1351,7 +1351,7 @@ index bad2ef78..97a9b006 100644
 From 13b356f8b18647fe838266d0f94aede0a17c8989 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 12 Jan 2026 11:47:28 +0100
-Subject: [PATCH 16/23] whisper: clamp duration_ms to vad samples
+Subject: [PATCH 16/24] whisper: clamp duration_ms to vad samples
 
 ---
  src/whisper.cpp | 8 ++++++++
@@ -1390,7 +1390,7 @@ index 97a9b006..1a70c182 100644
 From 062a0cca13f36c7bbf1bb8a1e632aea8037450d8 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:11 +0100
-Subject: [PATCH 17/23] ggml-cpu: fix ggml_thread_apply_priority for Android
+Subject: [PATCH 17/24] ggml-cpu: fix ggml_thread_apply_priority for Android
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 25 +++++++++++++++++++++++++
@@ -1446,7 +1446,7 @@ index a82842fc..138c6d39 100644
 From 7ae4141e28b3d06db4d3f493d9b050e5d53679df Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 13 Jan 2026 13:13:29 +0100
-Subject: [PATCH 18/23] ggml: default Realtime CPU
+Subject: [PATCH 18/24] ggml: default Realtime CPU
 
 ---
  ggml/src/ggml-cpu/ggml-cpu.c | 1 +
@@ -1485,7 +1485,7 @@ index de0321d9..bae5691a 100644
 From bcedb0bcf4e4911c99dced0e80703ba585b06470 Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 12:59:55 +0100
-Subject: [PATCH 19/23] add whisper_ctx_is_using_gpu
+Subject: [PATCH 19/24] add whisper_ctx_is_using_gpu
 
 ---
  include/whisper.h |  3 +++
@@ -1548,19 +1548,19 @@ index 1a70c182..668d43c6 100644
 2.47.3
 
 
-From f0ea1488f2e1a91c02d53a99bead58658a8ee661 Mon Sep 17 00:00:00 2001
+From 799570bd145a90ae750b384245d2cf8d1977681b Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Mon, 19 Jan 2026 14:18:08 +0100
-Subject: [PATCH 20/23] ggml: fix android 32bit build
+Subject: [PATCH 20/24] ggml: fix android 32bit build
 
 RelWithDebInfo/5h3o546h/x86/_deps/whisper_cpp-src/ggml/src/ggml-vulkan/ggml-vulkan.cpp:1922:92: error: invalid operands to binary expression ('basic_ostream<char, char_traits<char>>' and 'vk::Buffer')
    1922 |     VK_LOG_MEMORY(buf->device->name << ": +" << format_size(size) << " " << type << " at " << buf->buffer << ". Total device: " << format_size(total_device) << ", total host: " << format_size(total_host));
 ---
- ggml/src/ggml-vulkan/ggml-vulkan.cpp | 6 +++---
- 1 file changed, 3 insertions(+), 3 deletions(-)
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 10676a83..8cc455db 100644
+index 10676a83..d8787608 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -2259,7 +2259,7 @@ void vk_memory_logger::log_allocation(vk_buffer_ref buf_ref, size_t size) {
@@ -1598,10 +1598,10 @@ index 10676a83..8cc455db 100644
 2.47.3
 
 
-From c10d41189e11ad303915597c554055f50486218d Mon Sep 17 00:00:00 2001
+From fe0127ccd8b87d087ab6a0fae0e9048936f6c35e Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Tue, 20 Jan 2026 12:48:45 +0100
-Subject: [PATCH 21/23] whisper: use int64_t for
+Subject: [PATCH 21/24] whisper: use int64_t for
  whisper_vad_segments_get_segment_t*
 
 Don't do a int64_t -> float conversion, when not needed. (struct
@@ -1648,10 +1648,10 @@ index 668d43c6..a068f8b6 100644
 2.47.3
 
 
-From 779b359522eeb4b2a7e9b0b83f13954b3c76df7f Mon Sep 17 00:00:00 2001
+From 2c78a6452a389065b3462c942f624273637fcd8f Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Fri, 24 Jul 2026 20:43:04 +0000
-Subject: [PATCH 22/23] vulkan: disable spirv-opt for vulkan1.1 _bda shaders
+Subject: [PATCH 22/24] vulkan: disable spirv-opt for vulkan1.1 _bda shaders
 
 _bda shaders emit a SPIR-V 1.4 spec constant op (OpSpecConstantOp UConvert)
 that spirv-opt rejects when targeting vulkan1.1. Only 2 of 1323 variants are
@@ -1684,10 +1684,10 @@ index efc2e123..57c52c8a 100644
 2.47.3
 
 
-From 4ac818a4376b2d807406f1725fbfba4e8d388b57 Mon Sep 17 00:00:00 2001
+From 4d3db83a7a4e5defd8b8147ba3bc05e9f0df685d Mon Sep 17 00:00:00 2001
 From: Thomas Guillem <thomas@gllm.fr>
 Date: Sun, 26 Jul 2026 12:36:17 +0000
-Subject: [PATCH 23/23] vulkan: don't use KHR_coopmat on Mali
+Subject: [PATCH 23/24] vulkan: don't use KHR_coopmat on Mali
 
 Mali advertises the extension but has no matrix hardware, so the coopmat
 pipelines are emulated and slower than the standard path. On a Mali-G715,
@@ -1700,7 +1700,7 @@ is RDNA3-based so it must keep coopmat.
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
-index 8cc455db..c806bfdf 100644
+index d8787608..0c3148a1 100644
 --- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 +++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
 @@ -18323,7 +18323,8 @@ static bool ggml_vk_khr_cooperative_matrix_support(const vk::PhysicalDevicePrope
@@ -1713,6 +1713,115 @@ index 8cc455db..c806bfdf 100644
      }
  }
  
+-- 
+2.47.3
+
+
+From 6c4cbcd504e2cd9dd5eb0f86496d0e470fc91bba Mon Sep 17 00:00:00 2001
+From: Thomas Guillem <thomas@gllm.fr>
+Date: Thu, 30 Jul 2026 11:19:48 +0000
+Subject: [PATCH 24/24] ggml-cpu: tighten ARM variant selection
+
+Android selects CPU modules from HWCAP at runtime. Using armv8.2-a as
+the base for the FP16 and DotProd variant also permits unrelated LSE and
+RDM instructions that those feature checks do not cover.
+
+Keep the base at armv8-a and enable only fp16 and dotprod. Require both
+FPHP and ASIMDHP when scoring FP16 vector arithmetic, since ASIMDHP is
+needed by half-precision SIMD instructions.
+
+Let callers select an explicit variant list so Android packages can
+include only the baseline and fp16-dotprod modules.
+---
+ ggml/CMakeLists.txt                      |  1 +
+ ggml/src/CMakeLists.txt                  | 11 +++++++++++
+ ggml/src/ggml-cpu/CMakeLists.txt         | 14 ++++++--------
+ ggml/src/ggml-cpu/arch/arm/cpu-feats.cpp |  2 +-
+ 4 files changed, 19 insertions(+), 9 deletions(-)
+
+diff --git a/ggml/CMakeLists.txt b/ggml/CMakeLists.txt
+index 030349f3..5578c59b 100644
+--- a/ggml/CMakeLists.txt
++++ b/ggml/CMakeLists.txt
+@@ -181,6 +181,7 @@ option(GGML_XTHEADVECTOR     "ggml: enable xtheadvector"      OFF)
+ option(GGML_VXE              "ggml: enable vxe"               ${GGML_NATIVE})
+ 
+ option(GGML_CPU_ALL_VARIANTS "ggml: build all variants of the CPU backend (requires GGML_BACKEND_DL)" OFF)
++set(GGML_CPU_VARIANTS        "" CACHE STRING "ggml: CPU backend variants to build")
+ set(GGML_CPU_ARM_ARCH        "" CACHE STRING "ggml: CPU architecture for ARM")
+ set(GGML_CPU_POWERPC_CPUTYPE "" CACHE STRING "ggml: CPU type for PowerPC")
+ 
+diff --git a/ggml/src/CMakeLists.txt b/ggml/src/CMakeLists.txt
+index 89e5180d..9c8f2aef 100644
+--- a/ggml/src/CMakeLists.txt
++++ b/ggml/src/CMakeLists.txt
+@@ -323,6 +323,13 @@ function(ggml_add_backend backend)
+ endfunction()
+ 
+ function(ggml_add_cpu_backend_variant tag_name)
++    if (GGML_CPU_VARIANTS)
++        list(FIND GGML_CPU_VARIANTS ${tag_name} variant_index)
++        if (variant_index EQUAL -1)
++            return()
++        endif()
++    endif()
++
+     set(GGML_CPU_TAG_NAME ${tag_name})
+     # other: OPENMP LLAMAFILE CPU_HBM
+     if (GGML_SYSTEM_ARCH STREQUAL "x86")
+@@ -415,6 +422,10 @@ if (GGML_CPU_ALL_VARIANTS)
+             ggml_add_cpu_backend_variant(armv9.2_2    DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SVE2 SME)
+         elseif (CMAKE_SYSTEM_NAME MATCHES "Android")
+             # Android-specific backends with SoC-compatible feature sets
++            if (GGML_CPU_VARIANTS)
++                ggml_add_cpu_backend_variant(baseline)
++                ggml_add_cpu_backend_variant(fp16-dotprod DOTPROD FP16_VECTOR_ARITHMETIC)
++            endif()
+             ggml_add_cpu_backend_variant(android_armv8.0_1)
+             ggml_add_cpu_backend_variant(android_armv8.2_1    DOTPROD)
+             ggml_add_cpu_backend_variant(android_armv8.2_2    DOTPROD FP16_VECTOR_ARITHMETIC)
+diff --git a/ggml/src/ggml-cpu/CMakeLists.txt b/ggml/src/ggml-cpu/CMakeLists.txt
+index f7c557af..8359dbf6 100644
+--- a/ggml/src/ggml-cpu/CMakeLists.txt
++++ b/ggml/src/ggml-cpu/CMakeLists.txt
+@@ -174,18 +174,16 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
+                     set(ARCH_TAGS "")
+                     set(ARCH_DEFINITIONS "")
+ 
+-                    # When a feature is selected, bump the MCPU to the first
+-                    # version that supported it
+-                    if (GGML_INTERNAL_DOTPROD)
+-                        set(ARM_MCPU "armv8.2-a")
+-                        set(ARCH_TAGS "${ARCH_TAGS}+dotprod")
+-                        list(APPEND ARCH_DEFINITIONS GGML_USE_DOTPROD)
+-                    endif()
++                    # Keep optional extensions on the narrowest architectural
++                    # base so unrelated instructions are not enabled.
+                     if (GGML_INTERNAL_FP16_VECTOR_ARITHMETIC)
+-                        set(ARM_MCPU "armv8.2-a")
+                         set(ARCH_TAGS "${ARCH_TAGS}+fp16")
+                         list(APPEND ARCH_DEFINITIONS GGML_USE_FP16_VECTOR_ARITHMETIC)
+                     endif()
++                    if (GGML_INTERNAL_DOTPROD)
++                        set(ARCH_TAGS "${ARCH_TAGS}+dotprod")
++                        list(APPEND ARCH_DEFINITIONS GGML_USE_DOTPROD)
++                    endif()
+                     if (GGML_INTERNAL_SVE)
+                         set(ARM_MCPU "armv8.2-a")
+                         set(ARCH_TAGS "${ARCH_TAGS}+sve")
+diff --git a/ggml/src/ggml-cpu/arch/arm/cpu-feats.cpp b/ggml/src/ggml-cpu/arch/arm/cpu-feats.cpp
+index c460c549..f5d3513b 100644
+--- a/ggml/src/ggml-cpu/arch/arm/cpu-feats.cpp
++++ b/ggml/src/ggml-cpu/arch/arm/cpu-feats.cpp
+@@ -35,7 +35,7 @@ struct aarch64_features {
+         uint32_t hwcap2 = getauxval(AT_HWCAP2);
+ 
+         has_dotprod = !!(hwcap & HWCAP_ASIMDDP);
+-        has_fp16_va = !!(hwcap & HWCAP_FPHP);
++        has_fp16_va = !!(hwcap & HWCAP_FPHP) && !!(hwcap & HWCAP_ASIMDHP);
+         has_sve     = !!(hwcap & HWCAP_SVE);
+         has_sve2    = !!(hwcap2 & HWCAP2_SVE2);
+         has_i8mm    = !!(hwcap2 & HWCAP2_I8MM);
 -- 
 2.47.3
 
