@@ -1323,16 +1323,16 @@ private fun SegmentsContent(
         val showNewContentIndicator = !isAtBottom && !isComplete && segments.isNotEmpty() && !listenModeEnabled
 
         Box(modifier = Modifier.fillMaxSize()) {
-            SelectionContainer {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 48.dp)
-                ) {
-                    if (showTimestamps) {
-                        items(segments.size, key = { segments[it].startMs }) { index ->
-                            val segment = segments[index]
-                            val isCurrentSegment = index == currentSegmentIndex
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 48.dp)
+            ) {
+                if (showTimestamps) {
+                    items(segments.size, key = { segments[it].startMs }) { index ->
+                        val segment = segments[index]
+                        val isCurrentSegment = index == currentSegmentIndex
+                        SelectionContainer {
                             SegmentRow(
                                 segment = segment,
                                 showTimestamps = true,
@@ -1341,9 +1341,11 @@ private fun SegmentsContent(
                                 onClick = { onSegmentClick?.invoke(segment) }
                             )
                         }
-                    } else {
-                        item {
-                            val fullText = segments.joinToString(" ") { it.text.trim() }
+                    }
+                } else {
+                    item {
+                        val fullText = segments.joinToString(" ") { it.text.trim() }
+                        SelectionContainer {
                             Text(
                                 text = formatText(fullText),
                                 style = MaterialTheme.typography.bodyMedium,
