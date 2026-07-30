@@ -268,24 +268,13 @@ class WhisperContext private constructor(
             Log.d(LOG_TAG, "Primary ABI: ${Build.SUPPORTED_ABIS[0]}")
             var libraryLoaded = false
 
-            if (isArmEabiV8a()) {
-                try {
-                    Log.d(LOG_TAG, "Trying to load libwhisper_v8fp16_dotprod.so")
-                    System.loadLibrary("whisper_v8fp16_dotprod")
-                    libraryLoaded = true
-                    Log.d(LOG_TAG, "Successfully loaded libwhisper_v8fp16_dotprod.so")
-                } catch (e: Throwable) {
-                    Log.w(LOG_TAG, "Failed to load whisper_v8fp16_dotprod: ${e.message}")
-                }
-            }
-
-            if (!libraryLoaded && (isArmEabiV7a() || isArmEabiV8a())) {
+            if (isArmEabiV7a()) {
                 try {
                     Log.d(LOG_TAG, "Trying to load libwhisper_vfpv4.so")
                     System.loadLibrary("whisper_vfpv4")
                     libraryLoaded = true
                     Log.d(LOG_TAG, "Successfully loaded libwhisper_vfpv4.so")
-                } catch (e: Throwable) {
+                } catch (e: UnsatisfiedLinkError) {
                     Log.w(LOG_TAG, "Failed to load whisper_vfpv4: ${e.message}")
                 }
             }
@@ -317,10 +306,6 @@ class WhisperContext private constructor(
 
         private fun isArmEabiV7a(): Boolean {
             return Build.SUPPORTED_ABIS[0].equals("armeabi-v7a")
-        }
-
-        private fun isArmEabiV8a(): Boolean {
-            return Build.SUPPORTED_ABIS[0].equals("arm64-v8a")
         }
     }
 }

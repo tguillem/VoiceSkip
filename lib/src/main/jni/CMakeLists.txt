@@ -8,6 +8,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
 
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a")
+endif ()
+
 # Set linker flags for 16 KB page size support
 # This is CRITICAL for compatibility with 16 KB devices
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
@@ -145,10 +150,7 @@ function(build_library target_name)
     )
     target_compile_definitions(${target_name} PRIVATE WHISPER_VERSION="${WHISPER_VERSION}")
 
-    if (${target_name} STREQUAL "whisper_v8fp16_dotprod")
-        set(GGML_CPU_ARM_ARCH "armv8.2-a+fp16+dotprod" CACHE STRING "" FORCE)
-        target_compile_options(${target_name} PRIVATE -march=armv8.2-a+fp16+dotprod)
-    elseif (${target_name} STREQUAL "whisper_vfpv4")
+    if (${target_name} STREQUAL "whisper_vfpv4")
         target_compile_options(${target_name} PRIVATE -mfpu=neon-vfpv4)
     endif ()
 
@@ -180,6 +182,7 @@ function(build_library target_name)
     # Enable Vulkan backend in GGML
     set(GGML_VULKAN ON CACHE BOOL "" FORCE)
     set(GGML_VULKAN_MIN_1_1 ON CACHE BOOL "" FORCE)
+    set(GGML_CPU_ARM_ARCH "" CACHE STRING "" FORCE)
 
     FetchContent_MakeAvailable(${GGML_CONTENT_NAME})
 
@@ -193,9 +196,7 @@ function(build_library target_name)
 
 endfunction()
 
-if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    build_library("whisper_v8fp16_dotprod")
-elseif (${ANDROID_ABI} STREQUAL "armeabi-v7a")
+if (${ANDROID_ABI} STREQUAL "armeabi-v7a")
     build_library("whisper_vfpv4")
 endif ()
 
