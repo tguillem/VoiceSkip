@@ -62,14 +62,19 @@ class MainActivity : ComponentActivity() {
 
                         MainScreen(
                             onNavigateToSettings = {
-                                navController.navigate("settings")
+                                navController.navigate("settings") {
+                                    launchSingleTop = true
+                                }
                             }
                         )
                     }
                     composable("settings") {
                         SettingsScreen(
                             onNavigateBack = {
-                                navController.popBackStack()
+                                navController.popBackStack(
+                                    route = "main",
+                                    inclusive = false
+                                )
                             }
                         )
                     }
